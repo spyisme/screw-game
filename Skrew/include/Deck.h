@@ -1,0 +1,16 @@
+#pragma once
+#include <vector>
+#include "Card.h"
+
+class Deck
+{
+private:
+    std::vector<Card> deckArray;
+
+public:
+    Deck();
+
+    void createDeck();
+    void shuffle();
+    Card drawCard();
+};
