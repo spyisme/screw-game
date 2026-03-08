@@ -23,7 +23,8 @@ std::string cardToFileName(const Card& card) {
 void setCardTexture(sf::RectangleShape& box, sf::Texture& tex, const std::string& name) {
     std::string path = "assets/cards/" + name + ".png";
     if (tex.loadFromFile(path)) {
-        box.setTexture(&tex);
+        tex.setSmooth(true);
+        box.setTexture(&tex, true);
         box.setFillColor(sf::Color::White);
     }
     else {
