@@ -3,7 +3,9 @@
 enum class CardType {
     Number,
     Basra,
-    GiveAndTake
+    GiveAndTake,
+    GiveOnly,
+    SeeAndSwab
 };
 
 

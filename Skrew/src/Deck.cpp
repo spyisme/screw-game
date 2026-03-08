@@ -12,7 +12,7 @@ void Deck::createDeck()
 {
     deckArray.clear();
 
-    // 0–10 (4 copies each)
+    // 0–10 (5 copies each) 40 card
     for (int value = 0; value <= 10; value++)
     {
         for (int i = 0; i < 4; i++)
@@ -21,21 +21,32 @@ void Deck::createDeck()
         }
     }
 
-    // 20 (8 copies)
-    for (int i = 0; i < 8; i++)
+    // 20 (6 copies)
+    for (int i = 0; i < 6; i++)
         deckArray.push_back(Card(20));
 
-    // 25 (8 copies)
-    for (int i = 0; i < 8; i++)
+    // 25 (6 copies)
+    for (int i = 0; i < 6; i++)
         deckArray.push_back(Card(25));
+     
+	// 66 - 42 = 24 cards left for special cards 
 
-    // Basra (3 copies)
-    for (int i = 0; i < 3; i++)
+    // Basra (6 copies)
+    for (int i = 0; i < 6; i++)
         deckArray.push_back(Card(CardType::Basra));
 
-    // GiveAndTake (3 copies)
-    for (int i = 0; i < 3; i++)
+    // GiveAndTake (6 copies)
+    for (int i = 0; i < 6; i++)
         deckArray.push_back(Card(CardType::GiveAndTake));
+
+    // GiveOnly (6 copies)
+    for (int i = 0; i < 6; i++)
+        deckArray.push_back(Card(CardType::GiveOnly));
+
+    // SeeAndSwab (6 copies)
+    for (int i = 0; i < 6; i++)
+        deckArray.push_back(Card(CardType::SeeAndSwab));
+
 }
 
 void Deck::shuffle()
