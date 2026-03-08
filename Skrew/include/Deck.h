@@ -12,5 +12,9 @@ public:
 
     void createDeck();
     void shuffle();
+
+    size_t size() const {
+        return deckArray.size(); 
+    }
     Card drawCard();
 };

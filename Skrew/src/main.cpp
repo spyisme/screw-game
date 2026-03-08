@@ -1,117 +1,197 @@
 #include <iostream>
-#include <string>
 #include <vector>
+#include <string>
+#include <optional>
 #include <SFML/Graphics.hpp>
 #include "../include/Deck.h"
+#include "../include/Player.h"
 
-std::string cardToFileName(const Card& card)
-{
-    if (card.type == CardType::Number)
-        return std::to_string(card.value);
-    if (card.type == CardType::Basra)
-        return "Basra";
-    if (card.type == CardType::GiveAndTake)
-        return "5odwHat";
-    if (card.type == CardType::SeeAndSwab)
-        return "Seeandswab";
+const sf::Vector2f CARD_SIZE = { 130.f, 180.f };
 
+std::string cardToFileName(const Card& card) {
+    if (card.type == CardType::Number) return std::to_string(card.value);
+    if (card.type == CardType::Basra) return "Basra";
+    if (card.type == CardType::GiveAndTake) return "5odwHat";
+    if (card.type == CardType::SeeAndSwab) return "Seeandswab";
     return "Unknown";
 }
 
-int main()
-{
-    Deck deck;
-    std::vector<Card> cards;
+void setCardTexture(sf::RectangleShape& box, sf::Texture& tex, const std::string& name) {
+    std::string path = "assets/cards/" + name + ".png";
+    if (tex.loadFromFile(path)) {
+        box.setTexture(&tex);
+        box.setFillColor(sf::Color::White);
+    }
+    else {
+        box.setTexture(nullptr);
+        box.setFillColor(sf::Color::Red);
+    }
+}
 
-    auto drawNewCards = [&]() {
-        deck = Deck();
-        cards.clear();
-        for (int i = 0; i < 4; i++)
-            cards.push_back(deck.drawCard());
-        };
-
-    drawNewCards();
-
-    sf::RenderWindow window(sf::VideoMode({ 1000, 600 }), "Card Game - Image Mode");
-
+int main() {
+    sf::RenderWindow window(sf::VideoMode({ 1100, 750 }), "Skrew - Initial Peek");
     sf::Font font;
-    if (!font.openFromFile("assets/fonts/arial.ttf")) return 1;
+    if (!font.openFromFile("assets/fonts/arial.ttf")) return -1;
 
-    // Vectors to hold our UI
-    std::vector<sf::RectangleShape> cardBoxes;
-    std::vector<sf::Texture> cardTextures;
-    cardTextures.resize(4); // We need 4 texture slots
+    bool inMenu = true;
+    std::string p1Input = "";
 
-    // Function to update textures on the boxes
-    auto updateCardTextures = [&]() {
-        for (int i = 0; i < 4; i++) {
-            std::string filename = "assets/cards/" + cardToFileName(cards[i]) + ".png";
-            if (!cardTextures[i].loadFromFile(filename)) {
-                std::cout << "Failed to load: " << filename << "\n";
-                // Fallback: make the box red if image is missing
-                cardBoxes[i].setFillColor(sf::Color::Red);
-            }
-            else {
-                cardBoxes[i].setTexture(&cardTextures[i]);
-                cardBoxes[i].setFillColor(sf::Color::White); // Reset color to show texture properly
-            }
-        }
-        };
+    sf::Texture backTex, drawnTex, floorTex;
+    if (!backTex.loadFromFile("assets/cards/back.png")) return -1;
+    std::vector<sf::Texture> handTextures(4);
 
-    // Initialize Card Boxes
-    for (int i = 0; i < 4; i++)
-    {
-        sf::RectangleShape box({ 180.f, 250.f });
-        box.setPosition({ 80.f + i * 220.f, 100.f });
-        box.setOutlineThickness(3.f);
-        box.setOutlineColor(sf::Color::White);
-        cardBoxes.push_back(box);
+    Deck deck;
+    Player player1("P1");
+    std::optional<Card> currentDrawnCard;
+    std::optional<Card> lastFloorCard;
+    bool drawnFromFloor = false;
+
+    // UI Elements
+    sf::Text menuText(font, "Enter Your Name:", 40);
+    menuText.setPosition({ 350.f, 250.f });
+    sf::Text nameDisplay(font, "_", 40);
+    nameDisplay.setPosition({ 350.f, 320.f });
+    nameDisplay.setFillColor(sf::Color::Yellow);
+
+    sf::Text statusText(font, "", 22);
+    statusText.setPosition({ 300.f, 380.f });
+    statusText.setFillColor(sf::Color::White);
+
+    std::vector<sf::RectangleShape> deckStack;
+    for (int i = 0; i < 3; i++) {
+        sf::RectangleShape s(CARD_SIZE);
+        s.setTexture(&backTex);
+        s.setPosition({ 850.f - (i * 4), 100.f - (i * 4) });
+        deckStack.push_back(s);
     }
 
-    // Load initial textures
-    updateCardTextures();
+    sf::RectangleShape floorBox(CARD_SIZE);
+    floorBox.setPosition({ 600.f, 100.f });
+    floorBox.setOutlineThickness(2.f);
+    floorBox.setOutlineColor(sf::Color(100, 100, 100));
+    floorBox.setFillColor(sf::Color(50, 50, 50));
 
-    // Reroll Button
-    sf::RectangleShape button({ 160.f, 60.f });
-    button.setFillColor(sf::Color(100, 100, 250));
-    button.setPosition({ 420.f, 480.f });
+    sf::RectangleShape drawnBox(CARD_SIZE);
+    drawnBox.setPosition({ 350.f, 100.f });
+    drawnBox.setFillColor(sf::Color::Transparent);
 
-    sf::Text buttonText(font, "Reroll", 24);
-    buttonText.setFillColor(sf::Color::White);
+    std::vector<sf::RectangleShape> handBoxes;
+    for (int i = 0; i < 4; i++) {
+        sf::RectangleShape b(CARD_SIZE);
+        b.setPosition({ 230.f + i * 160.f, 500.f });
+        b.setTexture(&backTex); // Default to face down
+        handBoxes.push_back(b);
+    }
 
-    // Center button text (SFML 3.0 style)
-    sf::FloatRect btb = buttonText.getLocalBounds();
-    buttonText.setOrigin({ btb.position.x + btb.size.x / 2.0f, btb.position.y + btb.size.y / 2.0f });
-    buttonText.setPosition({ button.getPosition().x + 80.f, button.getPosition().y + 30.f });
+    while (window.isOpen()) {
+        while (const std::optional event = window.pollEvent()) {
+            if (event->is<sf::Event::Closed>()) window.close();
 
-    while (window.isOpen())
-    {
-        while (const std::optional event = window.pollEvent())
-        {
-            if (event->is<sf::Event::Closed>())
-                window.close();
+            if (inMenu) {
+                if (const auto* textEvent = event->getIf<sf::Event::TextEntered>()) {
+                    if (textEvent->unicode == '\b' && !p1Input.empty()) p1Input.pop_back();
+                    else if (textEvent->unicode == '\r' || textEvent->unicode == '\n') {
+                        if (!p1Input.empty()) {
+                            player1.setName(p1Input);
 
-            if (event->is<sf::Event::MouseButtonPressed>())
-            {
-                sf::Vector2i mousePixel = sf::Mouse::getPosition(window);
-                sf::Vector2f mouse(static_cast<float>(mousePixel.x), static_cast<float>(mousePixel.y));
+                            // DEALING LOGIC
+                            for (int i = 0; i < 4; i++) {
+                                player1.addCard(deck.drawCard());
 
-                if (button.getGlobalBounds().contains(mouse))
-                {
-                    drawNewCards();
-                    updateCardTextures();
+                                // NEW: Make first 2 cards visible, last 2 hidden
+                                if (i < 2) {
+                                    setCardTexture(handBoxes[i], handTextures[i], cardToFileName(player1.getHand()[i]));
+                                }
+                                else {
+                                    handBoxes[i].setTexture(&backTex);
+                                }
+                            }
+
+                            inMenu = false;
+                            statusText.setString("Cards 1 & 2 are revealed! Memorize them.");
+                        }
+                    }
+                    else if (textEvent->unicode < 128) p1Input += static_cast<char>(textEvent->unicode);
+                    nameDisplay.setString(p1Input + "_");
+                }
+            }
+            else if (event->is<sf::Event::MouseButtonPressed>()) {
+                sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+
+                // 1. Draw from Pile
+                if (!deckStack.empty() && deckStack.back().getGlobalBounds().contains(mouse) && !currentDrawnCard) {
+                    currentDrawnCard = deck.drawCard();
+                    drawnFromFloor = false;
+                    setCardTexture(drawnBox, drawnTex, cardToFileName(*currentDrawnCard));
+                    statusText.setString("Drawn from Pile. Swap or Discard.");
+                }
+
+                // 2. Take from Floor
+                if (floorBox.getGlobalBounds().contains(mouse) && lastFloorCard.has_value() && !currentDrawnCard) {
+                    currentDrawnCard = lastFloorCard;
+                    drawnFromFloor = true;
+                    lastFloorCard = std::nullopt;
+                    floorBox.setTexture(nullptr);
+                    floorBox.setFillColor(sf::Color(50, 50, 50));
+                    setCardTexture(drawnBox, drawnTex, cardToFileName(*currentDrawnCard));
+                    statusText.setString("Took from Floor. You MUST swap.");
+                }
+
+                // 3. Swap with Hand
+                if (currentDrawnCard.has_value()) {
+                    for (int i = 0; i < 4; i++) {
+                        if (handBoxes[i].getGlobalBounds().contains(mouse)) {
+                            Card oldHandCard = player1.getHand()[i];
+
+                            std::vector<Card>& handRef = const_cast<std::vector<Card>&>(player1.getHand());
+                            handRef[i] = *currentDrawnCard;
+
+                            // Update visual: The new card is now visible in your hand
+                            setCardTexture(handBoxes[i], handTextures[i], cardToFileName(handRef[i]));
+
+                            // Move old card to floor
+                            lastFloorCard = oldHandCard;
+                            setCardTexture(floorBox, floorTex, cardToFileName(*lastFloorCard));
+
+                            currentDrawnCard = std::nullopt;
+                            drawnBox.setFillColor(sf::Color::Transparent);
+                            statusText.setString("Swapped! New card is now visible.");
+                        }
+                    }
+
+                    // 4. Discard newly drawn card
+                    if (!drawnFromFloor && floorBox.getGlobalBounds().contains(mouse)) {
+                        lastFloorCard = currentDrawnCard;
+                        setCardTexture(floorBox, floorTex, cardToFileName(*lastFloorCard));
+                        currentDrawnCard = std::nullopt;
+                        drawnBox.setFillColor(sf::Color::Transparent);
+                        statusText.setString("Discarded.");
+                    }
                 }
             }
         }
 
-        window.clear(sf::Color(40, 40, 40));
+        window.clear(sf::Color(30, 60, 30));
 
-        for (const auto& box : cardBoxes) window.draw(box);
-        window.draw(button);
-        window.draw(buttonText);
+        if (inMenu) {
+            window.draw(menuText);
+            window.draw(nameDisplay);
+        }
+        else {
+            if (deck.size() > 0) {
+                for (auto& s : deckStack) window.draw(s);
+            }
+            window.draw(floorBox);
+            window.draw(drawnBox);
+            for (auto& hb : handBoxes) window.draw(hb);
+            window.draw(statusText);
+
+            sf::Text deckCount(font, "Deck: " + std::to_string(deck.size()), 20);
+            deckCount.setPosition({ 850, 300 });
+            window.draw(deckCount);
+        }
 
         window.display();
     }
-
     return 0;
 }

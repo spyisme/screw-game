@@ -11,11 +11,12 @@ Deck::Deck()
 void Deck::createDeck()
 {
     deckArray.clear();
+	deckArray.reserve(66);
 
     // -1–10 (4 copies each 11 card) 44 card
-    for (int value = 0; value <= 10; value++)
+    for (int value = -1; value <= 10; value++)
     {
-        for (int i = -1; i < 4; i++)
+        for (int i = 0; i < 4; i++)
         {
             deckArray.push_back(Card(value));
         }
@@ -26,10 +27,10 @@ void Deck::createDeck()
         deckArray.push_back(Card(20));
 
     // 25 (6 copies)
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 4; i++)
         deckArray.push_back(Card(25));
      
-	// 66 - 56 = 12 cards left for special cards 
+	// 66 - 56 = 10 cards left for special cards 
 
     // Basra (4 copies)
     for (int i = 0; i < 4; i++)
