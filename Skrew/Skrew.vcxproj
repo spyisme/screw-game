@@ -132,11 +132,13 @@
   <ItemGroup>
     <ClCompile Include="src\Deck.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\MainMenu.cpp" />
     <ClCompile Include="src\Player.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Card.h" />
     <ClInclude Include="include\Deck.h" />
+    <ClInclude Include="include\MainMenu.h" />
     <ClInclude Include="include\Player.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

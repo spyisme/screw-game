@@ -5,8 +5,16 @@
 #include <SFML/Graphics.hpp>
 #include "../include/Deck.h"
 #include "../include/Player.h"
+#include "../include/MainMenu.h" // Integrated Header
 
 const sf::Vector2f CARD_SIZE = { 130.f, 180.f };
+
+// Game States
+enum class AppState {
+    Menu,
+    Naming,
+    Playing
+};
 
 sf::Vector2f lerp(sf::Vector2f start, sf::Vector2f end, float t) {
     return start + t * (end - start);
@@ -16,6 +24,7 @@ std::string cardToFileName(const Card& card) {
     if (card.type == CardType::Number) return std::to_string(card.value);
     if (card.type == CardType::Basra) return "Basra";
     if (card.type == CardType::GiveAndTake) return "5odwHat";
+    if (card.type == CardType::Giveonly) return "5odbs";
     if (card.type == CardType::SeeAndSwab) return "Seeandswab";
     return "Unknown";
 }
@@ -34,15 +43,18 @@ void setCardTexture(sf::RectangleShape& box, sf::Texture& tex, const std::string
 }
 
 int main() {
-    sf::RenderWindow window(sf::VideoMode({ 1100, 750 }), "Skrew - Fixed Floor Discard");
+    sf::RenderWindow window(sf::VideoMode({ 1100, 750 }), "Skrew");
     sf::Font font;
     if (!font.openFromFile("assets/fonts/arial.ttf")) return -1;
 
+    // --- SYSTEMS ---
+    MainMenu mainMenu(font);
+    AppState state = AppState::Menu;
+
     // --- GAME STATE ---
-    bool inMenu = true;
     bool isFirstTurn = true;
     bool animating = false;
-    bool drawnFromFloor = false; // Track source to allow/disallow discard
+    bool drawnFromFloor = false;
     int animTargetIdx = -1;
     sf::Clock animClock;
     float animDuration = 0.4f;
@@ -66,8 +78,8 @@ int main() {
     sf::Vector2f floorPos = { 600.f, 100.f };
     sf::Vector2f drawnSlotPos = { 350.f, 100.f };
 
-    sf::Text nameDisplay(font, "_", 40);
-    nameDisplay.setPosition({ 450.f, 320.f });
+    sf::Text nameDisplay(font, "Enter Name: _", 40);
+    nameDisplay.setPosition({ 350.f, 320.f });
     sf::Text playerNameLabel(font, "", 28);
     playerNameLabel.setFillColor(sf::Color::Yellow);
 
@@ -90,7 +102,15 @@ int main() {
         while (const std::optional event = window.pollEvent()) {
             if (event->is<sf::Event::Closed>()) window.close();
 
-            if (inMenu) {
+            // 1. MAIN MENU STATE
+            if (state == AppState::Menu) {
+                MenuResult res = mainMenu.handleEvent(*event, window);
+                if (res == MenuResult::StartGame) state = AppState::Naming;
+                if (res == MenuResult::Exit) window.close();
+            }
+
+            // 2. NAMING STATE (Your previous logic)
+            else if (state == AppState::Naming) {
                 if (const auto* textEvent = event->getIf<sf::Event::TextEntered>()) {
                     if (textEvent->unicode == '\b' && !p1Input.empty()) p1Input.pop_back();
                     else if (textEvent->unicode == '\r' || textEvent->unicode == '\n') {
@@ -101,38 +121,38 @@ int main() {
                             playerNameLabel.setOrigin({ tb.position.x + tb.size.x / 2.f, 0 });
                             playerNameLabel.setPosition({ 470.f, 700.f });
                             for (int i = 0; i < 4; i++) player1.addCard(deck.drawCard());
-                            inMenu = false;
+                            state = AppState::Playing;
                         }
                     }
                     else if (textEvent->unicode < 128) p1Input += static_cast<char>(textEvent->unicode);
-                    nameDisplay.setString(p1Input + "_");
+                    nameDisplay.setString("Enter Name: " + p1Input + "_");
                 }
             }
-            else if (event->is<sf::Event::MouseButtonPressed>() && !animating) {
+
+            // 3. PLAYING STATE
+            else if (state == AppState::Playing && event->is<sf::Event::MouseButtonPressed>() && !animating) {
                 sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
 
-                // 1. DRAW FROM PILE
+                // Draw from pile
                 if (sf::FloatRect(deckPos, CARD_SIZE).contains(mouse) && !currentDrawnCard) {
                     isFirstTurn = false;
                     currentDrawnCard = deck.drawCard();
-                    drawnFromFloor = false; // Allowed to discard
+                    drawnFromFloor = false;
                     setCardTexture(drawnBox, drawnTex, cardToFileName(*currentDrawnCard));
                 }
 
-                // 2. FLOOR INTERACTION (Draw OR Discard)
+                // Floor Interaction
                 if (floorBox.getGlobalBounds().contains(mouse)) {
-                    // Scenario A: Discard the card we just drew from the pile
                     if (currentDrawnCard.has_value() && !drawnFromFloor) {
                         lastFloorCard = currentDrawnCard;
                         setCardTexture(floorBox, floorTex, cardToFileName(*lastFloorCard));
                         currentDrawnCard = std::nullopt;
                         drawnBox.setFillColor(sf::Color::Transparent);
                     }
-                    // Scenario B: Pick up the card already on the floor to swap
                     else if (!currentDrawnCard.has_value() && lastFloorCard.has_value()) {
                         isFirstTurn = false;
                         currentDrawnCard = lastFloorCard;
-                        drawnFromFloor = true; // MUST swap, cannot discard back
+                        drawnFromFloor = true;
                         lastFloorCard = std::nullopt;
                         floorBox.setTexture(nullptr);
                         floorBox.setFillColor(sf::Color(50, 50, 50));
@@ -140,7 +160,7 @@ int main() {
                     }
                 }
 
-                // 3. SWAP WITH HAND
+                // Swap with hand
                 if (currentDrawnCard.has_value()) {
                     for (int i = 0; i < 4; i++) {
                         if (handBoxes[i].getGlobalBounds().contains(mouse)) {
@@ -150,11 +170,11 @@ int main() {
 
                             setCardTexture(ghostToHand, texToHand, cardToFileName(*currentDrawnCard));
                             ghostToHand.setPosition(drawnSlotPos);
-
                             setCardTexture(ghostToFloor, texToFloor, cardToFileName(player1.getHand()[i]));
                             ghostToFloor.setPosition(handBoxes[i].getPosition());
 
                             Card oldHand = player1.getHand()[i];
+                            // Const cast hack for quick testing; ideally Player should have a swapCard method
                             std::vector<Card>& handRef = const_cast<std::vector<Card>&>(player1.getHand());
                             handRef[i] = *currentDrawnCard;
                             lastFloorCard = oldHand;
@@ -168,8 +188,8 @@ int main() {
             }
         }
 
-        // Animation logic
-        if (animating) {
+        // --- UPDATE LOGIC ---
+        if (state == AppState::Playing && animating) {
             float t = animClock.getElapsedTime().asSeconds() / animDuration;
             if (t >= 1.0f) {
                 animating = false;
@@ -182,12 +202,16 @@ int main() {
             }
         }
 
+        // --- DRAWING ---
         window.clear(sf::Color(30, 60, 30));
 
-        if (inMenu) {
+        if (state == AppState::Menu) {
+            mainMenu.draw(window);
+        }
+        else if (state == AppState::Naming) {
             window.draw(nameDisplay);
         }
-        else {
+        else if (state == AppState::Playing) {
             for (int i = 0; i < 4; i++) {
                 if (animating && i == animTargetIdx) continue;
                 if (isFirstTurn && i < 2)
@@ -201,6 +225,7 @@ int main() {
             window.draw(drawnBox);
             window.draw(playerNameLabel);
             if (animating) { window.draw(ghostToHand); window.draw(ghostToFloor); }
+
             for (int i = 0; i < 3; i++) {
                 sf::RectangleShape s(CARD_SIZE);
                 s.setTexture(&backTex);
@@ -208,6 +233,7 @@ int main() {
                 window.draw(s);
             }
         }
+
         window.display();
     }
     return 0;
