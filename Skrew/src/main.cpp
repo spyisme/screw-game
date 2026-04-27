@@ -22,9 +22,7 @@ sf::Vector2f lerp(sf::Vector2f start, sf::Vector2f end, float t) {
 
 std::string cardToFileName(const Card& card) {
     if (card.type == CardType::Number) return std::to_string(card.value);
-    if (card.type == CardType::Basra) return "Basra";
     if (card.type == CardType::GiveAndTake) return "5odwHat";
-    if (card.type == CardType::Giveonly) return "5odbs";
     if (card.type == CardType::SeeAndSwab) return "Seeandswab";
     return "Unknown";
 }
