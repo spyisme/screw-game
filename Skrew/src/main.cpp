@@ -631,6 +631,34 @@ bool isActionTargetPhase(const nlohmann::json& state)
         hasAllowedAction(state, "cancel_see_and_swap");
 }
 
+bool isRoundFinished(const nlohmann::json& state)
+{
+    std::string phase = lowerText(jsonString(state, { "phase", "status" }));
+    return phase == "round_finished" || phase == "finished" || phase == "round_complete";
+}
+
+bool canCallScrew(const nlohmann::json& state, const std::string& playerId)
+{
+    if (!state.is_object() || isRoundFinished(state) || isActionTargetPhase(state) || getDrawnCard(state).has_value())
+    {
+        return false;
+    }
+
+    std::string phase = lowerText(jsonString(state, { "phase", "status" }));
+    if (phase == "final_turns")
+    {
+        return false;
+    }
+
+    if (hasAllowedAction(state, "call_screw"))
+    {
+        return true;
+    }
+
+    std::string currentPlayerId = jsonString(state, { "current_player_id", "currentPlayerId" });
+    return phase == "playing" && !currentPlayerId.empty() && currentPlayerId == playerId;
+}
+
 std::string getPendingActionType(const nlohmann::json& state)
 {
     if (state.is_object() && state.contains("pending_action") && state["pending_action"].is_object())
@@ -791,6 +819,73 @@ std::vector<nlohmann::json> getCardsFromPlayer(const nlohmann::json& player)
     }
 
     return cards;
+}
+
+std::vector<nlohmann::json> getRoundResults(const nlohmann::json& state)
+{
+    std::vector<nlohmann::json> results;
+    if (!state.is_object())
+    {
+        return results;
+    }
+
+    const nlohmann::json* resultArray = nullptr;
+    if (state.contains("round_results") && state["round_results"].is_array())
+    {
+        resultArray = &state["round_results"];
+    }
+    else if (state.contains("results") && state["results"].is_array())
+    {
+        resultArray = &state["results"];
+    }
+
+    if (resultArray == nullptr)
+    {
+        return results;
+    }
+
+    for (const auto& result : *resultArray)
+    {
+        results.push_back(result);
+    }
+
+    return results;
+}
+
+std::vector<nlohmann::json> getDisplayHand(const nlohmann::json& state, const std::string& playerId)
+{
+    if (isRoundFinished(state))
+    {
+        for (const auto& result : getRoundResults(state))
+        {
+            std::string id = jsonString(result, { "player_id", "playerId", "id" });
+            if (id == playerId)
+            {
+                return getCardsFromPlayer(result);
+            }
+        }
+    }
+
+    return getPlayerHand(state, playerId);
+}
+
+std::vector<nlohmann::json> getDisplayOtherPlayers(const nlohmann::json& state, const std::string& playerId)
+{
+    if (isRoundFinished(state))
+    {
+        std::vector<nlohmann::json> others;
+        for (const auto& result : getRoundResults(state))
+        {
+            std::string id = jsonString(result, { "player_id", "playerId", "id" });
+            if (id != playerId)
+            {
+                others.push_back(result);
+            }
+        }
+        return others;
+    }
+
+    return getOtherPlayers(state, playerId);
 }
 
 const nlohmann::json& cardPayload(const nlohmann::json& slot)
@@ -1205,6 +1300,37 @@ void drawButton(sf::RenderWindow& window, sf::RectangleShape& button, sf::Text& 
     button.setPosition(originalPosition);
 }
 
+void drawTooltip(sf::RenderWindow& window, sf::Font& font, const std::string& message, sf::Vector2f position, float amount)
+{
+    if (amount <= 0.02f)
+    {
+        return;
+    }
+
+    amount = easeInOut(amount);
+    std::uint8_t alpha = static_cast<std::uint8_t>(220.f * amount);
+    sf::Vector2f size = { 212.f, 42.f };
+    sf::Vector2f offset = { 0.f, 10.f * (1.f - amount) };
+
+    sf::RectangleShape shadow(size);
+    shadow.setPosition(position + offset + sf::Vector2f(4.f, 6.f));
+    shadow.setFillColor(sf::Color(0, 0, 0, static_cast<std::uint8_t>(70.f * amount)));
+    window.draw(shadow);
+
+    sf::RectangleShape tooltip(size);
+    tooltip.setPosition(position + offset);
+    tooltip.setFillColor(withAlpha(TABLE_PANEL_DARK, alpha));
+    tooltip.setOutlineThickness(1.f);
+    tooltip.setOutlineColor(withAlpha(ACCENT_GOLD, static_cast<std::uint8_t>(180.f * amount)));
+    window.draw(tooltip);
+
+    sf::Text text(font, message, 17);
+    text.setFillColor(withAlpha(TEXT_PRIMARY, static_cast<std::uint8_t>(255.f * amount)));
+    fitTextToWidth(text, size.x - 24.f, 12);
+    text.setPosition(position + offset + sf::Vector2f(12.f, 11.f));
+    window.draw(text);
+}
+
 void drawCardLabel(sf::RenderWindow& window, sf::Font& font, const std::string& label, sf::Vector2f cardPosition, sf::Color color = TEXT_SECONDARY)
 {
     sf::Text text(font, label, 17);
@@ -1309,6 +1435,70 @@ void drawStatusBar(sf::RenderWindow& window, sf::Font& font, const std::string& 
     window.draw(text);
 }
 
+void drawRoundResultsPanel(sf::RenderWindow& window, sf::Font& font, const nlohmann::json& state, const std::string& localPlayerId)
+{
+    std::vector<nlohmann::json> results = getRoundResults(state);
+    if (results.empty())
+    {
+        return;
+    }
+
+    drawPanel(window, { 506.f, 320.f }, { 458.f, 154.f }, TABLE_PANEL_DARK, ACCENT_GOLD);
+
+    sf::Text title(font, "Round scores", 22);
+    title.setFillColor(ACCENT_GOLD);
+    title.setPosition({ 526.f, 334.f });
+    window.draw(title);
+
+    std::string screwCallerId = jsonString(state, { "screw_caller_id", "screwCallerId" });
+    bool screwSuccessKnown = state.is_object() && state.contains("screw_success") && state["screw_success"].is_boolean();
+    bool screwSuccess = screwSuccessKnown ? state["screw_success"].get<bool>() : false;
+
+    sf::Text screwText(font, screwSuccessKnown ? (screwSuccess ? "Screw succeeded" : "Screw failed") : "Round finished", 16);
+    screwText.setFillColor(screwSuccessKnown && !screwSuccess ? DANGER_TEXT : TEXT_SECONDARY);
+    screwText.setPosition({ 744.f, 338.f });
+    window.draw(screwText);
+
+    float y = 368.f;
+    for (const auto& result : results)
+    {
+        std::string id = jsonString(result, { "player_id", "playerId", "id" });
+        std::string name = jsonString(result, { "nickname", "name", "player_id", "id" });
+        if (name.empty())
+        {
+            name = "Player";
+        }
+        if (id == localPlayerId)
+        {
+            name += " (you)";
+        }
+
+        std::optional<int> rawScore = getIntegerField(result, { "raw_round_score", "rawRoundScore" });
+        std::optional<int> appliedScore = getIntegerField(result, { "applied_round_score", "appliedRoundScore", "round_score", "roundScore", "score" });
+        std::optional<int> totalScore = getIntegerField(result, { "total_score", "totalScore" });
+
+        std::string line = name;
+        if (id == screwCallerId)
+        {
+            line += " - Screw";
+        }
+
+        line += "    Round: " + (appliedScore.has_value() ? std::to_string(appliedScore.value()) : "?");
+        if (rawScore.has_value() && appliedScore.has_value() && rawScore.value() != appliedScore.value())
+        {
+            line += " (raw " + std::to_string(rawScore.value()) + ")";
+        }
+        line += "    Total: " + (totalScore.has_value() ? std::to_string(totalScore.value()) : "?");
+
+        sf::Text row(font, line, 16);
+        row.setFillColor(id == localPlayerId ? TEXT_PRIMARY : TEXT_SECONDARY);
+        fitTextToWidth(row, 416.f, 11);
+        row.setPosition({ 526.f, y });
+        window.draw(row);
+        y += 24.f;
+    }
+}
+
 std::filesystem::path getExecutableDirectory()
 {
     std::vector<char> path(MAX_PATH);
@@ -1395,6 +1585,7 @@ int runApp()
     nlohmann::json latestLobby;
     bool isHost = false;
     bool waitingForDiscardSwap = false;
+    bool screwConfirmOpen = false;
     int giveAndTakeOwnIndex = -1;
     std::string lastObservedStateSignature;
     std::string lastObservedCurrentPlayerId;
@@ -1417,6 +1608,7 @@ int runApp()
     std::vector<ClickPulse> clickPulses;
     std::array<float, 4> handHover = { 0.f, 0.f, 0.f, 0.f };
     std::array<float, 3> pileHover = { 0.f, 0.f, 0.f };
+    float screwHoverAmount = 0.f;
     std::vector<std::array<float, 4>> opponentHover;
 
     sf::Vector2f deckPos = { 830.f, 112.f };
@@ -1474,6 +1666,30 @@ int runApp()
     sf::Text startButtonText(font, "Start", 28);
     startButtonText.setFillColor(sf::Color::White);
     centerText(startButtonText, startButton);
+
+    sf::RectangleShape screwButton({ 140.f, 52.f });
+    screwButton.setPosition({ 820.f, 604.f });
+    screwButton.setFillColor(sf::Color(158, 69, 58));
+
+    sf::Text screwButtonText(font, "Screw!", 25);
+    screwButtonText.setFillColor(sf::Color::White);
+    centerText(screwButtonText, screwButton);
+
+    sf::RectangleShape screwConfirmYesButton({ 132.f, 44.f });
+    screwConfirmYesButton.setPosition({ 438.f, 390.f });
+    screwConfirmYesButton.setFillColor(sf::Color(158, 69, 58));
+
+    sf::Text screwConfirmYesText(font, "Confirm", 20);
+    screwConfirmYesText.setFillColor(sf::Color::White);
+    centerText(screwConfirmYesText, screwConfirmYesButton);
+
+    sf::RectangleShape screwConfirmNoButton({ 132.f, 44.f });
+    screwConfirmNoButton.setPosition({ 590.f, 390.f });
+    screwConfirmNoButton.setFillColor(ACCENT_BLUE);
+
+    sf::Text screwConfirmNoText(font, "Cancel", 20);
+    screwConfirmNoText.setFillColor(sf::Color::White);
+    centerText(screwConfirmNoText, screwConfirmNoButton);
 
     sf::Text playerNameLabel(font, "", 24);
     playerNameLabel.setFillColor(TEXT_PRIMARY);
@@ -1659,6 +1875,7 @@ int runApp()
                     availableRooms.clear();
                     latestLobby = nlohmann::json::object();
                     isHost = false;
+                    screwConfirmOpen = false;
                     lastObservedStateSignature.clear();
                     lastObservedCurrentPlayerId.clear();
                     setFittedText(joiningText, "Nickname: _", 34, 410.f, 18);
@@ -1817,7 +2034,12 @@ int runApp()
                 if (keyEvent != nullptr && keyEvent->code == sf::Keyboard::Key::Escape)
                 {
                     const nlohmann::json& gameState = client.getState();
-                    if (hasAllowedAction(gameState, "cancel_see_and_swap"))
+                    if (screwConfirmOpen)
+                    {
+                        screwConfirmOpen = false;
+                        statusMessage.clear();
+                    }
+                    else if (hasAllowedAction(gameState, "cancel_see_and_swap"))
                     {
                         if (client.cancelSeeAndSwap())
                         {
@@ -1842,6 +2064,54 @@ int runApp()
                 std::optional<nlohmann::json> drawnCard = getDrawnCard(gameState);
                 std::vector<nlohmann::json> hand = getPlayerHand(gameState, client.getPlayerId());
                 std::vector<nlohmann::json> otherPlayers = getOtherPlayers(gameState, client.getPlayerId());
+
+                if (screwConfirmOpen)
+                {
+                    if (screwConfirmYesButton.getGlobalBounds().contains(mouse))
+                    {
+                        if (client.callScrew())
+                        {
+                            lastObservedStateSignature = makeStateSignature(client.getState());
+                            lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
+                            playingPollClock.restart();
+                            waitingForDiscardSwap = false;
+                            giveAndTakeOwnIndex = -1;
+                            screwConfirmOpen = false;
+                            statusMessage.clear();
+                        }
+                        else
+                        {
+                            statusMessage = client.getLastError();
+                        }
+                    }
+                    else
+                    {
+                        screwConfirmOpen = false;
+                        statusMessage.clear();
+                    }
+
+                    continue;
+                }
+
+                if (isRoundFinished(gameState))
+                {
+                    continue;
+                }
+
+                if (screwButton.getGlobalBounds().contains(mouse))
+                {
+                    if (canCallScrew(gameState, client.getPlayerId()))
+                    {
+                        screwConfirmOpen = true;
+                        statusMessage.clear();
+                    }
+                    else
+                    {
+                        statusMessage = "You can only call Screw on your turn before drawing.";
+                    }
+
+                    continue;
+                }
 
                 if (isActionTargetPhase(gameState))
                 {
@@ -2312,12 +2582,13 @@ int runApp()
         else if (state == AppState::Playing)
         {
             const nlohmann::json& gameState = client.getState();
-            std::vector<nlohmann::json> hand = getPlayerHand(gameState, client.getPlayerId());
-            std::vector<nlohmann::json> otherPlayers = getOtherPlayers(gameState, client.getPlayerId());
+            bool roundFinished = isRoundFinished(gameState);
+            std::vector<nlohmann::json> hand = getDisplayHand(gameState, client.getPlayerId());
+            std::vector<nlohmann::json> otherPlayers = getDisplayOtherPlayers(gameState, client.getPlayerId());
             std::optional<nlohmann::json> discardCard = getDiscardCard(gameState);
             std::optional<nlohmann::json> drawnCard = getDrawnCard(gameState);
             std::string currentPlayerId = getCurrentPlayerId(gameState);
-            bool localTurn = currentPlayerId.empty() || currentPlayerId == client.getPlayerId() || !gameState.value("allowed_actions", nlohmann::json::array()).empty();
+            bool localTurn = !roundFinished && (currentPlayerId.empty() || currentPlayerId == client.getPlayerId() || !gameState.value("allowed_actions", nlohmann::json::array()).empty());
             float turnPulse = 0.5f + 0.5f * std::sin(uiTime * 4.2f);
 
 
@@ -2331,7 +2602,7 @@ int runApp()
             currentTurnLabel.setFillColor(localTurn ? ACCENT_GOLD : TEXT_SECONDARY);
             window.draw(currentTurnLabel);
 
-            bool actionTargetPhase = isActionTargetPhase(gameState);
+            bool actionTargetPhase = !roundFinished && isActionTargetPhase(gameState);
             bool canGiveAndTake = hasAllowedAction(gameState, "resolve_give_and_take");
             bool canRevealSeeAndSwap = hasAllowedAction(gameState, "reveal_see_and_swap_target");
             bool canResolveSeeAndSwap = hasAllowedAction(gameState, "resolve_see_and_swap");
@@ -2381,8 +2652,8 @@ int runApp()
                 }
             }
 
-            bool canSwapDrawn = drawnCard.has_value() && hasAllowedAction(gameState, "swap_drawn_with_own_card");
-            bool canTakeDiscard = waitingForDiscardSwap && hasAllowedAction(gameState, "take_discard_and_swap");
+            bool canSwapDrawn = !roundFinished && drawnCard.has_value() && hasAllowedAction(gameState, "swap_drawn_with_own_card");
+            bool canTakeDiscard = !roundFinished && waitingForDiscardSwap && hasAllowedAction(gameState, "take_discard_and_swap");
             for (int i = 0; i < static_cast<int>(handBoxes.size()); i++)
             {
                 if (animating && i == animTargetIndex)
@@ -2423,7 +2694,7 @@ int runApp()
                 discardBox.setFillColor(SLOT_EMPTY);
             }
             bool discardHovered = discardBox.getGlobalBounds().contains(mouse);
-            bool discardActionable = drawnCard.has_value() || hasAllowedAction(gameState, "take_discard_and_swap") || hasAllowedAction(gameState, "cancel_see_and_swap");
+            bool discardActionable = !roundFinished && (drawnCard.has_value() || hasAllowedAction(gameState, "take_discard_and_swap") || hasAllowedAction(gameState, "cancel_see_and_swap"));
             pileHover[1] = approach(pileHover[1], discardHovered ? 1.f : 0.f, discardHovered ? 10.f : 7.f, dt);
             styleCardSlot(discardBox, discardHovered, discardActionable);
 
@@ -2446,7 +2717,7 @@ int runApp()
             drawCardLabel(window, font, drawnCard.has_value() ? "Drawn card" : "Drawn slot", drawnPos, drawnCard.has_value() ? ACCENT_GOLD : TEXT_SECONDARY);
 
             bool deckHovered = sf::FloatRect(deckPos, CARD_SIZE).contains(mouse);
-            bool deckActionable = !drawnCard.has_value() && hasAllowedAction(gameState, "draw_from_deck");
+            bool deckActionable = !roundFinished && !drawnCard.has_value() && hasAllowedAction(gameState, "draw_from_deck");
             pileHover[0] = approach(pileHover[0], deckHovered ? 1.f : 0.f, deckHovered ? 10.f : 7.f, dt);
             for (int i = 0; i < 3; i++)
             {
@@ -2485,7 +2756,8 @@ int runApp()
             {
                 setFittedText(
                     hintText,
-                    waitingForDiscardSwap ? "Choose one of your cards to swap with the discard pile" : "Deck draws. Discard drops drawn cards or starts a swap.",
+                    roundFinished ? "Round finished. Cards are revealed and scores are shown." :
+                    (waitingForDiscardSwap ? "Choose one of your cards to swap with the discard pile" : "Deck draws. Discard drops drawn cards or starts a swap."),
                     19,
                     438.f,
                     13);
@@ -2515,7 +2787,52 @@ int runApp()
                 }
             }
 
+            if (roundFinished)
+            {
+                drawRoundResultsPanel(window, font, gameState, client.getPlayerId());
+                screwConfirmOpen = false;
+            }
+            else
+            {
+                bool screwAllowed = canCallScrew(gameState, client.getPlayerId());
+                bool screwHovered = screwButton.getGlobalBounds().contains(mouse);
+                screwHoverAmount = approach(screwHoverAmount, screwHovered && !screwConfirmOpen ? 1.f : 0.f, screwHovered ? 9.f : 7.f, dt);
+                screwButtonText.setFillColor(screwAllowed ? sf::Color::White : TEXT_SECONDARY);
+                drawButton(
+                    window,
+                    screwButton,
+                    screwButtonText,
+                    screwHovered && screwAllowed && !screwConfirmOpen,
+                    screwAllowed ? sf::Color(158, 69, 58) : sf::Color(55, 61, 57),
+                    screwAllowed ? sf::Color(188, 82, 68) : sf::Color(55, 61, 57));
+                drawTooltip(window, font, "This ends the turn.", { 748.f, 552.f }, screwHoverAmount);
+            }
+
             drawClickPulses(window, clickPulses, uiTime);
+        }
+
+        if (screwConfirmOpen && state == AppState::Playing)
+        {
+            sf::RectangleShape overlay({ 1000.f, 700.f });
+            overlay.setFillColor(sf::Color(0, 0, 0, 112));
+            window.draw(overlay);
+
+            drawPanel(window, { 310.f, 250.f }, { 380.f, 210.f }, TABLE_PANEL_DARK, ACCENT_GOLD);
+
+            sf::Text title(font, "Call Screw?", 30);
+            title.setFillColor(ACCENT_GOLD);
+            title.setPosition({ 414.f, 278.f });
+            window.draw(title);
+
+            sf::Text body(font, "This ends your turn and starts final turns.", 19);
+            body.setFillColor(TEXT_PRIMARY);
+            fitTextToWidth(body, 320.f, 13);
+            body.setPosition({ 344.f, 330.f });
+            window.draw(body);
+
+            sf::Vector2f confirmMouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+            drawButton(window, screwConfirmYesButton, screwConfirmYesText, screwConfirmYesButton.getGlobalBounds().contains(confirmMouse), sf::Color(158, 69, 58), sf::Color(188, 82, 68));
+            drawButton(window, screwConfirmNoButton, screwConfirmNoText, screwConfirmNoButton.getGlobalBounds().contains(confirmMouse), ACCENT_BLUE, sf::Color(90, 130, 122));
         }
 
         if (!statusMessage.empty())

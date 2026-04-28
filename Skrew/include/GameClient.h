@@ -32,6 +32,7 @@ public:
     bool refreshState();
     bool drawFromDeck();
     bool dropDrawnCard();
+    bool callScrew();
     bool swapDrawnWithOwnCard(int ownCardIndex);
     bool takeDiscardAndSwap(int ownCardIndex);
     bool resolveGiveAndTake(int ownCardIndex, const std::string& targetPlayerId, int targetCardIndex);

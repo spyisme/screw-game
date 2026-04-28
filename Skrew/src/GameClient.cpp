@@ -294,6 +294,11 @@ bool GameClient::dropDrawnCard()
     return sendAction("drop_drawn_card", nlohmann::json::object());
 }
 
+bool GameClient::callScrew()
+{
+    return sendAction("call_screw", nlohmann::json::object());
+}
+
 bool GameClient::swapDrawnWithOwnCard(int ownCardIndex)
 {
     nlohmann::json payload;
