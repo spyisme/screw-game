@@ -1,4 +1,4 @@
-# Skrew
+# Skrew (Programming 2 project)
 
 Skrew is a multiplayer card game project with a C++/SFML desktop client and a Flask backend. The backend is the source of truth for rooms, turns, card visibility, card movement, and action validation. The client renders the game and talks to the backend over HTTP.
 
