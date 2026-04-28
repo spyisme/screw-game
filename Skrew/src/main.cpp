@@ -803,10 +803,134 @@ const nlohmann::json& cardPayload(const nlohmann::json& slot)
     return slot;
 }
 
-std::string cardSource(const nlohmann::json& slot)
+std::string normalizeZoneName(const std::string& zone)
+{
+    std::string normalized = lowerText(zone);
+    if (normalized == "deck" || normalized == "draw_pile")
+    {
+        return "pile";
+    }
+
+    if (normalized == "ground" || normalized == "floor" || normalized == "floor_pile" || normalized == "discard_pile")
+    {
+        return "discard";
+    }
+
+    if (normalized == "drawn" || normalized == "drawn_card" || normalized == "current_drawn_card")
+    {
+        return "pending_drawn_card";
+    }
+
+    return normalized;
+}
+
+std::string cardFieldString(const nlohmann::json& slot, const std::vector<std::string>& fieldNames)
 {
     const nlohmann::json& card = cardPayload(slot);
-    return lowerText(jsonString(card, { "source" }));
+    std::string value = jsonString(card, fieldNames);
+    if (!value.empty())
+    {
+        return value;
+    }
+
+    if (&card != &slot)
+    {
+        return jsonString(slot, fieldNames);
+    }
+
+    return "";
+}
+
+const nlohmann::json* cardLocation(const nlohmann::json& slot, const std::string& fieldName)
+{
+    const nlohmann::json& card = cardPayload(slot);
+    if (card.is_object() && card.contains(fieldName) && card[fieldName].is_object())
+    {
+        return &card[fieldName];
+    }
+
+    if (&card != &slot && slot.is_object() && slot.contains(fieldName) && slot[fieldName].is_object())
+    {
+        return &slot[fieldName];
+    }
+
+    return nullptr;
+}
+
+std::string locationZone(const nlohmann::json* location)
+{
+    if (location == nullptr)
+    {
+        return "";
+    }
+
+    return normalizeZoneName(jsonString(*location, { "zone" }));
+}
+
+std::string locationPlayerId(const nlohmann::json* location)
+{
+    if (location == nullptr)
+    {
+        return "";
+    }
+
+    return jsonString(*location, { "player_id", "playerId", "id" });
+}
+
+std::optional<int> locationIndex(const nlohmann::json* location)
+{
+    if (location == nullptr)
+    {
+        return std::nullopt;
+    }
+
+    return getIntegerField(*location, { "index", "card_index", "position" });
+}
+
+std::string locationKey(const nlohmann::json* location, const std::string& fallbackZone)
+{
+    std::string zone = locationZone(location);
+    if (zone.empty())
+    {
+        zone = normalizeZoneName(fallbackZone);
+    }
+
+    std::string key = zone;
+    std::string playerId = locationPlayerId(location);
+    if (!playerId.empty())
+    {
+        key += ":" + playerId;
+    }
+
+    std::optional<int> index = locationIndex(location);
+    if (index.has_value())
+    {
+        key += "#" + std::to_string(index.value());
+    }
+
+    return key;
+}
+
+std::string cardSource(const nlohmann::json& slot)
+{
+    std::string source = normalizeZoneName(cardFieldString(slot, { "source" }));
+    if (!source.empty())
+    {
+        return source;
+    }
+
+    return locationZone(cardLocation(slot, "from"));
+}
+
+std::string cardDestination(const nlohmann::json& slot)
+{
+    std::string destination = normalizeZoneName(cardFieldString(slot, { "destination" }));
+    if (!destination.empty())
+    {
+        return destination;
+    }
+
+    return locationZone(cardLocation(slot, "to"));
 }
 
 const nlohmann::json* cardSwapInfo(const nlohmann::json& slot)
@@ -828,18 +952,49 @@ int cardSlotIndex(const nlohmann::json& slot, int fallback)
 
 std::string cardIdentity(const nlohmann::json& slot)
 {
-    const nlohmann::json& card = cardPayload(slot);
-    std::string id = jsonString(card, { "id", "card_id", "cardId" });
+    std::string id = cardFieldString(slot, { "id", "card_id", "cardId" });
     if (!id.empty())
     {
         return id;
     }
 
-    return cardFileName(slot) + "|" + jsonString(card, { "type", "card_type" }) + "|" + jsonString(card, { "value", "rank" });
+    return cardFileName(slot) + "|" + cardFieldString(slot, { "type", "card_type" }) + "|" + cardFieldString(slot, { "value", "rank" });
+}
+
+std::string cardMovementKey(const nlohmann::json& slot)
+{
+    const nlohmann::json* from = cardLocation(slot, "from");
+    const nlohmann::json* to = cardLocation(slot, "to");
+    std::string source = cardSource(slot);
+    std::string destination = cardDestination(slot);
+
+    if (from == nullptr && to == nullptr && source.empty() && destination.empty())
+    {
+        return "";
+    }
+
+    return cardIdentity(slot) + "|" + locationKey(from, source) + "->" + locationKey(to, destination);
 }
 
 std::optional<nlohmann::json> findPlayerCardByIndex(const nlohmann::json& state, const std::string& playerId, int cardIndex)
 {
+    if (state.is_object() && state.contains("player") && state["player"].is_object())
+    {
+        const nlohmann::json& player = state["player"];
+        std::string id = jsonString(player, { "player_id", "playerId", "id" });
+        if (id.empty() || id == playerId)
+        {
+            std::vector<nlohmann::json> cards = getCardsFromPlayer(player);
+            for (int i = 0; i < static_cast<int>(cards.size()); i++)
+            {
+                if (cardSlotIndex(cards[i], i) == cardIndex)
+                {
+                    return cards[i];
+                }
+            }
+        }
+    }
+
     if (state.is_object() && state.contains("players") && state["players"].is_array())
     {
         for (const auto& player : state["players"])
@@ -862,6 +1017,82 @@ std::optional<nlohmann::json> findPlayerCardByIndex(const nlohmann::json& state,
     }
 
     return std::nullopt;
+}
+
+std::optional<nlohmann::json> findCardAtLocation(const nlohmann::json& state, const nlohmann::json* location, const std::string& fallbackZone)
+{
+    std::string zone = locationZone(location);
+    if (zone.empty())
+    {
+        zone = normalizeZoneName(fallbackZone);
+    }
+
+    if (zone == "hand")
+    {
+        std::string playerId = locationPlayerId(location);
+        std::optional<int> index = locationIndex(location);
+        if (!playerId.empty() && index.has_value())
+        {
+            return findPlayerCardByIndex(state, playerId, index.value());
+        }
+    }
+
+    if (zone == "discard")
+    {
+        return getDiscardCard(state);
+    }
+
+    if (zone == "pending_drawn_card")
+    {
+        return getDrawnCard(state);
+    }
+
+    return std::nullopt;
+}
+
+std::optional<nlohmann::json> findCardAtMovementDestination(const nlohmann::json& state, const nlohmann::json& cardSlot)
+{
+    return findCardAtLocation(state, cardLocation(cardSlot, "to"), cardDestination(cardSlot));
+}
+
+void addMovedCardSlot(std::vector<nlohmann::json>& movedCards, const nlohmann::json& slot)
+{
+    if (!cardMovementKey(slot).empty())
+    {
+        movedCards.push_back(slot);
+    }
+}
+
+std::vector<nlohmann::json> collectMovedCardSlots(const nlohmann::json& state, const std::string& localPlayerId)
+{
+    std::vector<nlohmann::json> movedCards;
+
+    std::optional<nlohmann::json> discardCard = getDiscardCard(state);
+    if (discardCard.has_value())
+    {
+        addMovedCardSlot(movedCards, *discardCard);
+    }
+
+    std::optional<nlohmann::json> drawnCard = getDrawnCard(state);
+    if (drawnCard.has_value())
+    {
+        addMovedCardSlot(movedCards, *drawnCard);
+    }
+
+    for (const nlohmann::json& card : getPlayerHand(state, localPlayerId))
+    {
+        addMovedCardSlot(movedCards, card);
+    }
+
+    for (const nlohmann::json& otherPlayer : getOtherPlayers(state, localPlayerId))
+    {
+        for (const nlohmann::json& card : getCardsFromPlayer(otherPlayer))
+        {
+            addMovedCardSlot(movedCards, card);
+        }
+    }
+
+    return movedCards;
 }
 
 int getOpponentRowForPlayer(const nlohmann::json& state, const std::string& localPlayerId, const std::string& playerId)
@@ -1167,7 +1398,6 @@ int runApp()
     int giveAndTakeOwnIndex = -1;
     std::string lastObservedStateSignature;
     std::string lastObservedCurrentPlayerId;
-    std::string remoteDeckDrawPlayerId;
 
     bool animating = false;
     bool remoteAnimating = false;
@@ -1302,17 +1532,64 @@ int runApp()
             return std::nullopt;
         };
 
+    auto visualLocationPosition = [&](const nlohmann::json& stateJson, const nlohmann::json* location, const std::string& fallbackZone) -> std::optional<sf::Vector2f>
+        {
+            std::string zone = locationZone(location);
+            if (zone.empty())
+            {
+                zone = normalizeZoneName(fallbackZone);
+            }
+
+            if (zone == "pile")
+            {
+                return deckPos;
+            }
+
+            if (zone == "discard")
+            {
+                return discardPos;
+            }
+
+            if (zone == "pending_drawn_card")
+            {
+                return drawnPos;
+            }
+
+            if (zone == "hand")
+            {
+                std::string locationPlayer = locationPlayerId(location);
+                std::optional<int> index = locationIndex(location);
+                if (!locationPlayer.empty() && index.has_value())
+                {
+                    return visualCardPosition(stateJson, locationPlayer, index.value());
+                }
+            }
+
+            return std::nullopt;
+        };
+
     auto sourcePositionForCard = [&](const nlohmann::json& stateJson, const nlohmann::json& cardSlot, sf::Vector2f fallbackPosition) -> sf::Vector2f
         {
+            std::optional<sf::Vector2f> structuredPosition = visualLocationPosition(stateJson, cardLocation(cardSlot, "from"), cardSource(cardSlot));
+            if (structuredPosition.has_value())
+            {
+                return structuredPosition.value();
+            }
+
             std::string source = cardSource(cardSlot);
             if (source == "pile")
             {
                 return deckPos;
             }
 
-            if (source == "ground")
+            if (source == "discard")
             {
                 return discardPos;
+            }
+
+            if (source == "pending_drawn_card")
+            {
+                return drawnPos;
             }
 
             if (source == "action_card")
@@ -1334,6 +1611,12 @@ int runApp()
             }
 
             return fallbackPosition;
+        };
+
+    auto destinationPositionForCard = [&](const nlohmann::json& stateJson, const nlohmann::json& cardSlot, sf::Vector2f fallbackPosition) -> sf::Vector2f
+        {
+            std::optional<sf::Vector2f> structuredPosition = visualLocationPosition(stateJson, cardLocation(cardSlot, "to"), cardDestination(cardSlot));
+            return structuredPosition.has_value() ? structuredPosition.value() : fallbackPosition;
         };
 
     auto queueRemoteCardMotion = [&](const nlohmann::json& cardSlot, sf::Vector2f start, sf::Vector2f end)
@@ -1378,7 +1661,6 @@ int runApp()
                     isHost = false;
                     lastObservedStateSignature.clear();
                     lastObservedCurrentPlayerId.clear();
-                    remoteDeckDrawPlayerId.clear();
                     setFittedText(joiningText, "Nickname: _", 34, 410.f, 18);
                     statusMessage.clear();
                 }
@@ -1521,7 +1803,6 @@ int runApp()
                         playingPollClock.restart();
                         lastObservedStateSignature = makeStateSignature(client.getState());
                         lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                        remoteDeckDrawPlayerId.clear();
                         statusMessage.clear();
                     }
                     else
@@ -1542,7 +1823,6 @@ int runApp()
                         {
                             lastObservedStateSignature = makeStateSignature(client.getState());
                             lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                            remoteDeckDrawPlayerId.clear();
                             playingPollClock.restart();
                             giveAndTakeOwnIndex = -1;
                             statusMessage.clear();
@@ -1662,7 +1942,6 @@ int runApp()
                     {
                         lastObservedStateSignature = makeStateSignature(client.getState());
                         lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                        remoteDeckDrawPlayerId.clear();
                         playingPollClock.restart();
                         waitingForDiscardSwap = false;
                         giveAndTakeOwnIndex = -1;
@@ -1699,7 +1978,6 @@ int runApp()
                     {
                         lastObservedStateSignature = makeStateSignature(client.getState());
                         lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                        remoteDeckDrawPlayerId.clear();
                         playingPollClock.restart();
                         statusMessage.clear();
                         waitingForDiscardSwap = false;
@@ -1722,7 +2000,6 @@ int runApp()
                         {
                             lastObservedStateSignature = makeStateSignature(client.getState());
                             lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                            remoteDeckDrawPlayerId.clear();
                             playingPollClock.restart();
                             statusMessage.clear();
                             waitingForDiscardSwap = false;
@@ -1784,7 +2061,6 @@ int runApp()
                         {
                             lastObservedStateSignature = makeStateSignature(client.getState());
                             lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                            remoteDeckDrawPlayerId.clear();
                             playingPollClock.restart();
                             animating = true;
                             animTargetIndex = i;
@@ -1817,7 +2093,6 @@ int runApp()
                 playingPollClock.restart();
                 lastObservedStateSignature = makeStateSignature(client.getState());
                 lastObservedCurrentPlayerId = getCurrentPlayerId(client.getState());
-                remoteDeckDrawPlayerId.clear();
                 statusMessage.clear();
             }
         }
@@ -1844,106 +2119,38 @@ int runApp()
                 const nlohmann::json& refreshedState = client.getState();
                 std::string newSignature = makeStateSignature(refreshedState);
                 std::string newCurrentPlayerId = getCurrentPlayerId(refreshedState);
-                std::string previousDiscardName = getDiscardCardName(previousState);
-                std::string newDiscardName = getDiscardCardName(refreshedState);
-                bool discardChanged = !newDiscardName.empty() && previousDiscardName != newDiscardName;
-                std::optional<int> previousDrawPileCount = getDrawPileCount(previousState);
-                std::optional<int> newDrawPileCount = getDrawPileCount(refreshedState);
-                bool drawPileChanged = previousDrawPileCount.has_value() &&
-                    newDrawPileCount.has_value() &&
-                    previousDrawPileCount.value() != newDrawPileCount.value();
-                bool hadPendingDrawnCard = getDrawnCard(previousState).has_value();
                 bool remoteStateChanged = !previousSignature.empty() &&
                     previousSignature != newSignature &&
                     previousCurrentPlayerId != client.getPlayerId();
 
-                if (remoteStateChanged && drawPileChanged && !discardChanged)
-                {
-                    remoteDeckDrawPlayerId = previousCurrentPlayerId;
-                }
-                else if (!remoteDeckDrawPlayerId.empty() && newCurrentPlayerId != remoteDeckDrawPlayerId && previousCurrentPlayerId != remoteDeckDrawPlayerId)
-                {
-                    remoteDeckDrawPlayerId.clear();
-                }
-
-                if (remoteStateChanged && discardChanged && !animating)
-                {
-                    int opponentRow = 0;
-                    std::vector<nlohmann::json> otherPlayers = getOtherPlayers(refreshedState, client.getPlayerId());
-                    for (int i = 0; i < static_cast<int>(otherPlayers.size()); i++)
-                    {
-                        std::string otherId = jsonString(otherPlayers[i], { "player_id", "playerId", "id" });
-                        if (otherId == previousCurrentPlayerId)
-                        {
-                            opponentRow = i;
-                            break;
-                        }
-                    }
-
-                    sf::FloatRect sourceCard = getOpponentCardBounds(opponentRow, 3);
-                    sf::Vector2f remoteAnimStart = sourceCard.position;
-                    if (drawPileChanged || remoteDeckDrawPlayerId == previousCurrentPlayerId)
-                    {
-                        remoteAnimStart = deckPos;
-                    }
-                    else if (hadPendingDrawnCard)
-                    {
-                        remoteAnimStart = drawnPos;
-                    }
-                    else
-                    {
-                        remoteAnimStart = sourceCard.position;
-                    }
-                    std::optional<nlohmann::json> remoteDiscardCard = getDiscardCard(refreshedState);
-                    if (remoteDiscardCard.has_value())
-                    {
-                        queueRemoteCardMotion(*remoteDiscardCard, remoteAnimStart, discardPos);
-                    }
-                    remoteDeckDrawPlayerId.clear();
-                }
-
                 if (remoteStateChanged && !animating)
                 {
-                    std::vector<nlohmann::json> otherPlayers = getOtherPlayers(refreshedState, client.getPlayerId());
-                    for (const auto& otherPlayer : otherPlayers)
+                    std::vector<nlohmann::json> movedCards = collectMovedCardSlots(refreshedState, client.getPlayerId());
+                    for (const nlohmann::json& movedCard : movedCards)
                     {
-                        std::string otherId = jsonString(otherPlayer, { "player_id", "playerId", "id" });
-                        if (otherId.empty())
+                        std::string movementKey = cardMovementKey(movedCard);
+                        if (movementKey.empty())
                         {
                             continue;
                         }
 
-                        std::vector<nlohmann::json> otherCards = getCardsFromPlayer(otherPlayer);
-                        int cardCount = std::min(static_cast<int>(otherCards.size()), 4);
-                        for (int i = 0; i < cardCount; i++)
+                        std::optional<nlohmann::json> previousDestinationCard = findCardAtMovementDestination(previousState, movedCard);
+                        if (previousDestinationCard.has_value() &&
+                            cardMovementKey(previousDestinationCard.value()) == movementKey &&
+                            cardIdentity(previousDestinationCard.value()) == cardIdentity(movedCard))
                         {
-                            int slotIndex = cardSlotIndex(otherCards[i], i);
-                            if (slotIndex < 0 || slotIndex >= 4 || cardSource(otherCards[i]).empty())
-                            {
-                                continue;
-                            }
-
-                            std::optional<nlohmann::json> previousCard = findPlayerCardByIndex(previousState, otherId, slotIndex);
-                            if (previousCard.has_value() && cardIdentity(previousCard.value()) == cardIdentity(otherCards[i]))
-                            {
-                                continue;
-                            }
-
-                            std::optional<sf::Vector2f> endPosition = visualCardPosition(refreshedState, otherId, slotIndex);
-                            if (!endPosition.has_value())
-                            {
-                                continue;
-                            }
-
-                            sf::Vector2f startPosition = sourcePositionForCard(refreshedState, otherCards[i], endPosition.value());
-                            if (std::abs(startPosition.x - endPosition.value().x) < 1.f &&
-                                std::abs(startPosition.y - endPosition.value().y) < 1.f)
-                            {
-                                continue;
-                            }
-
-                            queueRemoteCardMotion(otherCards[i], startPosition, endPosition.value());
+                            continue;
                         }
+
+                        sf::Vector2f endPosition = destinationPositionForCard(refreshedState, movedCard, discardPos);
+                        sf::Vector2f startPosition = sourcePositionForCard(refreshedState, movedCard, endPosition);
+                        if (std::abs(startPosition.x - endPosition.x) < 1.f &&
+                            std::abs(startPosition.y - endPosition.y) < 1.f)
+                        {
+                            continue;
+                        }
+
+                        queueRemoteCardMotion(movedCard, startPosition, endPosition);
                     }
                 }
 
