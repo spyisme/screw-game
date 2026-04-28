@@ -9,6 +9,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <array>
 #include <vector>
 #define NOMINMAX
 #include <windows.h>
@@ -18,20 +19,22 @@
 #include "../include/TextureManager.h"
 
 const sf::Vector2f CARD_SIZE = { 96.f, 132.f };
-const sf::Vector2f OPPONENT_CARD_SIZE = CARD_SIZE;
+const sf::Vector2f OPPONENT_CARD_SIZE = { 80.f, 110.f };
 const float PLAYER_CARD_SPACING = 112.f;
-const float OPPONENT_CARD_SPACING = PLAYER_CARD_SPACING;
-const float OPPONENT_ROW_SPACING = 150.f;
-const sf::Color TABLE_BACKGROUND = sf::Color(18, 72, 50);
-const sf::Color TABLE_PANEL = sf::Color(24, 91, 66);
-const sf::Color TABLE_PANEL_DARK = sf::Color(16, 55, 45);
-const sf::Color TABLE_RAIL = sf::Color(76, 47, 34);
-const sf::Color TEXT_PRIMARY = sf::Color(248, 244, 224);
-const sf::Color TEXT_SECONDARY = sf::Color(202, 217, 201);
-const sf::Color ACCENT_GREEN = sf::Color(44, 145, 95);
-const sf::Color ACCENT_BLUE = sf::Color(63, 101, 167);
-const sf::Color ACCENT_GOLD = sf::Color(232, 196, 95);
-const sf::Color DANGER_TEXT = sf::Color(255, 190, 178);
+const float OPPONENT_CARD_SPACING = 95.f;
+const float OPPONENT_ROW_SPACING = 110.f;
+const sf::Color TABLE_BACKGROUND = sf::Color(24, 34, 31);
+const sf::Color TABLE_PANEL = sf::Color(31, 46, 41);
+const sf::Color TABLE_PANEL_DARK = sf::Color(20, 29, 27);
+const sf::Color TABLE_RAIL = sf::Color(34, 31, 28);
+const sf::Color PANEL_OUTLINE = sf::Color(58, 75, 67);
+const sf::Color SLOT_EMPTY = sf::Color(38, 45, 42);
+const sf::Color TEXT_PRIMARY = sf::Color(241, 238, 226);
+const sf::Color TEXT_SECONDARY = sf::Color(180, 190, 182);
+const sf::Color ACCENT_GREEN = sf::Color(85, 146, 109);
+const sf::Color ACCENT_BLUE = sf::Color(80, 118, 111);
+const sf::Color ACCENT_GOLD = sf::Color(210, 177, 93);
+const sf::Color DANGER_TEXT = sf::Color(232, 154, 142);
 
 enum class AppState
 {
@@ -56,6 +59,21 @@ struct AppConfig
     unsigned int height = 700;
 };
 
+struct RemoteCardMotion
+{
+    sf::RectangleShape card;
+    sf::Vector2f start;
+    sf::Vector2f end;
+    float startedAt = 0.f;
+    float duration = 0.62f;
+};
+
+struct ClickPulse
+{
+    sf::Vector2f position;
+    float startedAt = 0.f;
+};
+
 std::vector<nlohmann::json> getPlayerHand(const nlohmann::json& state, const std::string& playerId);
 
 sf::Vector2f lerp(sf::Vector2f start, sf::Vector2f end, float t)
@@ -72,6 +90,23 @@ float easeInOut(float t)
 {
     t = clamp01(t);
     return t * t * (3.f - 2.f * t);
+}
+
+float approach(float current, float target, float speed, float dt)
+{
+    float step = speed * dt;
+    if (current < target)
+    {
+        return std::min(current + step, target);
+    }
+
+    return std::max(current - step, target);
+}
+
+sf::Color withAlpha(sf::Color color, std::uint8_t alpha)
+{
+    color.a = alpha;
+    return color;
 }
 
 std::string lowerText(const std::string& text)
@@ -608,7 +643,7 @@ std::string getPendingActionType(const nlohmann::json& state)
 
 sf::FloatRect getOpponentCardBounds(int playerIndex, int cardIndex)
 {
-    float rowY = 78.f + playerIndex * OPPONENT_ROW_SPACING;
+    float rowY = 60.f + playerIndex * OPPONENT_ROW_SPACING;
     return sf::FloatRect({ 36.f + cardIndex * OPPONENT_CARD_SPACING, rowY }, OPPONENT_CARD_SIZE);
 }
 
@@ -702,6 +737,16 @@ std::string makeStateSignature(const nlohmann::json& state)
     std::optional<nlohmann::json> drawnCard = getDrawnCard(state);
     signature += drawnCard.has_value() ? "|pending:yes" : "|pending:no";
 
+    if (state.is_object() && state.contains("players"))
+    {
+        signature += "|players:" + state["players"].dump();
+    }
+
+    if (state.is_object() && state.contains("pending_action"))
+    {
+        signature += "|action:" + state["pending_action"].dump();
+    }
+
     return signature;
 }
 
@@ -748,6 +793,92 @@ std::vector<nlohmann::json> getCardsFromPlayer(const nlohmann::json& player)
     return cards;
 }
 
+const nlohmann::json& cardPayload(const nlohmann::json& slot)
+{
+    if (slot.is_object() && slot.contains("card") && slot["card"].is_object())
+    {
+        return slot["card"];
+    }
+
+    return slot;
+}
+
+std::string cardSource(const nlohmann::json& slot)
+{
+    const nlohmann::json& card = cardPayload(slot);
+    return lowerText(jsonString(card, { "source" }));
+}
+
+const nlohmann::json* cardSwapInfo(const nlohmann::json& slot)
+{
+    const nlohmann::json& card = cardPayload(slot);
+    if (card.is_object() && card.contains("swap_info") && card["swap_info"].is_object())
+    {
+        return &card["swap_info"];
+    }
+
+    return nullptr;
+}
+
+int cardSlotIndex(const nlohmann::json& slot, int fallback)
+{
+    std::optional<int> index = getIntegerField(slot, { "index", "card_index", "position" });
+    return index.has_value() ? index.value() : fallback;
+}
+
+std::string cardIdentity(const nlohmann::json& slot)
+{
+    const nlohmann::json& card = cardPayload(slot);
+    std::string id = jsonString(card, { "id", "card_id", "cardId" });
+    if (!id.empty())
+    {
+        return id;
+    }
+
+    return cardFileName(slot) + "|" + jsonString(card, { "type", "card_type" }) + "|" + jsonString(card, { "value", "rank" });
+}
+
+std::optional<nlohmann::json> findPlayerCardByIndex(const nlohmann::json& state, const std::string& playerId, int cardIndex)
+{
+    if (state.is_object() && state.contains("players") && state["players"].is_array())
+    {
+        for (const auto& player : state["players"])
+        {
+            std::string id = jsonString(player, { "player_id", "playerId", "id" });
+            if (id != playerId)
+            {
+                continue;
+            }
+
+            std::vector<nlohmann::json> cards = getCardsFromPlayer(player);
+            for (int i = 0; i < static_cast<int>(cards.size()); i++)
+            {
+                if (cardSlotIndex(cards[i], i) == cardIndex)
+                {
+                    return cards[i];
+                }
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
+int getOpponentRowForPlayer(const nlohmann::json& state, const std::string& localPlayerId, const std::string& playerId)
+{
+    std::vector<nlohmann::json> otherPlayers = getOtherPlayers(state, localPlayerId);
+    for (int i = 0; i < static_cast<int>(otherPlayers.size()); i++)
+    {
+        std::string otherId = jsonString(otherPlayers[i], { "player_id", "playerId", "id" });
+        if (otherId == playerId)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 void setBoxTexture(sf::RectangleShape& box, TextureManager& textures, const std::string& fileName)
 {
     sf::Texture* texture = textures.getTexture(fileName);
@@ -759,7 +890,7 @@ void setBoxTexture(sf::RectangleShape& box, TextureManager& textures, const std:
     else
     {
         box.setTexture(nullptr);
-        box.setFillColor(sf::Color(160, 40, 40));
+        box.setFillColor(sf::Color(122, 58, 52));
     }
 }
 
@@ -807,23 +938,40 @@ void setFittedText(sf::Text& text, const std::string& value, unsigned int charac
 
 void drawPanel(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f size, sf::Color fill, sf::Color outline)
 {
+    sf::RectangleShape shadow(size);
+    shadow.setPosition(position + sf::Vector2f(5.f, 7.f));
+    shadow.setFillColor(sf::Color(0, 0, 0, 46));
+    window.draw(shadow);
+
     sf::RectangleShape panel(size);
     panel.setPosition(position);
     panel.setFillColor(fill);
-    panel.setOutlineThickness(2.f);
+    panel.setOutlineThickness(1.f);
     panel.setOutlineColor(outline);
     window.draw(panel);
 }
 
 void drawButton(sf::RenderWindow& window, sf::RectangleShape& button, sf::Text& label, bool hovered, sf::Color normal, sf::Color hover)
 {
-    button.setFillColor(hovered ? hover : normal);
-    button.setOutlineThickness(2.f);
-    button.setOutlineColor(hovered ? ACCENT_GOLD : sf::Color(118, 154, 126));
+    bool pressed = hovered && sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
+    sf::Vector2f originalPosition = button.getPosition();
+    sf::RectangleShape shadow(button.getSize());
+    shadow.setPosition(originalPosition + sf::Vector2f(0.f, pressed ? 3.f : 6.f));
+    shadow.setFillColor(sf::Color(0, 0, 0, hovered ? 74 : 48));
+    window.draw(shadow);
+
+    button.setPosition(originalPosition + sf::Vector2f(0.f, hovered && !pressed ? -2.f : 0.f));
+    button.setFillColor(pressed ? sf::Color(
+        static_cast<std::uint8_t>(std::max(0, hover.r - 24)),
+        static_cast<std::uint8_t>(std::max(0, hover.g - 24)),
+        static_cast<std::uint8_t>(std::max(0, hover.b - 24))) : (hovered ? hover : normal));
+    button.setOutlineThickness(hovered ? 2.f : 1.f);
+    button.setOutlineColor(hovered ? ACCENT_GOLD : PANEL_OUTLINE);
     fitTextToWidth(label, button.getSize().x - 28.f, 16);
     centerText(label, button);
     window.draw(button);
     window.draw(label);
+    button.setPosition(originalPosition);
 }
 
 void drawCardLabel(sf::RenderWindow& window, sf::Font& font, const std::string& label, sf::Vector2f cardPosition, sf::Color color = TEXT_SECONDARY)
@@ -838,23 +986,81 @@ void drawCardLabel(sf::RenderWindow& window, sf::Font& font, const std::string& 
 
 void styleCardSlot(sf::RectangleShape& box, bool hovered, bool actionable)
 {
-    box.setOutlineThickness(actionable ? 4.f : 2.f);
+    box.setOutlineThickness(actionable ? 3.f : 1.f);
     if (hovered && actionable)
     {
         box.setOutlineColor(ACCENT_GOLD);
     }
     else if (actionable)
     {
-        box.setOutlineColor(sf::Color(116, 217, 151));
+        box.setOutlineColor(ACCENT_GREEN);
     }
     else if (hovered)
     {
-        box.setOutlineColor(sf::Color(170, 190, 176));
+        box.setOutlineColor(TEXT_SECONDARY);
     }
     else
     {
-        box.setOutlineColor(sf::Color(64, 104, 78));
+        box.setOutlineColor(PANEL_OUTLINE);
     }
+}
+
+void drawCardVisual(sf::RenderWindow& window, const sf::RectangleShape& baseBox, bool hovered, bool actionable, bool dimmed, bool selected, float hoverAmount, float pressAmount, float timeSeconds)
+{
+    sf::Vector2f basePosition = baseBox.getPosition();
+    sf::Vector2f baseSize = baseBox.getSize();
+    float lift = hovered ? 8.f * hoverAmount : 0.f;
+    float scale = 1.f + 0.055f * hoverAmount - 0.035f * pressAmount;
+    float glowPulse = 0.65f + 0.35f * std::sin(timeSeconds * 5.5f);
+
+    if (actionable || selected)
+    {
+        sf::RectangleShape glow(baseSize + sf::Vector2f(14.f, 14.f));
+        glow.setPosition(basePosition - sf::Vector2f(7.f, 7.f + lift));
+        glow.setFillColor(sf::Color::Transparent);
+        glow.setOutlineThickness(selected ? 5.f : 3.f);
+        glow.setOutlineColor(withAlpha(selected ? ACCENT_GOLD : ACCENT_GREEN, static_cast<std::uint8_t>(90 + 90 * glowPulse)));
+        window.draw(glow);
+    }
+
+    sf::RectangleShape shadow(baseSize);
+    shadow.setPosition(basePosition + sf::Vector2f(7.f + 3.f * hoverAmount, 10.f + 6.f * hoverAmount));
+    shadow.setFillColor(sf::Color(0, 0, 0, static_cast<std::uint8_t>(dimmed ? 54 : 92)));
+    window.draw(shadow);
+
+    sf::RectangleShape card = baseBox;
+    card.setOrigin({ baseSize.x / 2.f, baseSize.y / 2.f });
+    card.setPosition(basePosition + sf::Vector2f(baseSize.x / 2.f, baseSize.y / 2.f - lift + 3.f * pressAmount));
+    card.setScale({ scale, scale });
+    if (dimmed)
+    {
+        card.setFillColor(withAlpha(card.getFillColor(), 132));
+        card.setOutlineColor(withAlpha(card.getOutlineColor(), 96));
+    }
+    window.draw(card);
+}
+
+void drawClickPulses(sf::RenderWindow& window, std::vector<ClickPulse>& pulses, float now)
+{
+    for (const ClickPulse& pulse : pulses)
+    {
+        float t = clamp01((now - pulse.startedAt) / 0.32f);
+        float eased = easeInOut(t);
+        sf::CircleShape ring(14.f + 28.f * eased);
+        ring.setOrigin({ ring.getRadius(), ring.getRadius() });
+        ring.setPosition(pulse.position);
+        ring.setFillColor(sf::Color::Transparent);
+        ring.setOutlineThickness(2.f);
+        ring.setOutlineColor(withAlpha(ACCENT_GOLD, static_cast<std::uint8_t>(150.f * (1.f - t))));
+        window.draw(ring);
+    }
+
+    pulses.erase(
+        std::remove_if(pulses.begin(), pulses.end(), [now](const ClickPulse& pulse)
+            {
+                return now - pulse.startedAt >= 0.32f;
+            }),
+        pulses.end());
 }
 
 void drawStatusBar(sf::RenderWindow& window, sf::Font& font, const std::string& message, bool isError)
@@ -864,7 +1070,7 @@ void drawStatusBar(sf::RenderWindow& window, sf::Font& font, const std::string& 
         return;
     }
 
-    drawPanel(window, { 24.f, 626.f }, { 952.f, 46.f }, sf::Color(27, 48, 45), isError ? DANGER_TEXT : sf::Color(115, 167, 135));
+    drawPanel(window, { 24.f, 626.f }, { 952.f, 46.f }, TABLE_PANEL_DARK, isError ? DANGER_TEXT : PANEL_OUTLINE);
     sf::Text text(font, message, 20);
     text.setFillColor(isError ? DANGER_TEXT : TEXT_PRIMARY);
     fitTextToWidth(text, 912.f, 14);
@@ -896,6 +1102,26 @@ std::filesystem::path getExecutableDirectory()
     return std::filesystem::path(std::string(path.data(), length)).parent_path();
 }
 
+void configureDllSearchPath()
+{
+    std::filesystem::path dllDir = getExecutableDirectory() / "dlls";
+    if (std::filesystem::exists(dllDir))
+    {
+        SetDllDirectoryA(dllDir.string().c_str());
+    }
+}
+
+std::string assetPath(const std::string& relativePath)
+{
+    std::filesystem::path bundledPath = getExecutableDirectory() / "dlls" / relativePath;
+    if (std::filesystem::exists(bundledPath))
+    {
+        return bundledPath.string();
+    }
+
+    return relativePath;
+}
+
 void showFatalError(const std::string& message)
 {
     std::ofstream log("crash_log.txt", std::ios::app);
@@ -918,7 +1144,7 @@ int runApp()
     window.setFramerateLimit(60);
     window.setView(sf::View(sf::FloatRect({ 0.f, 0.f }, { 1000.f, 700.f })));
     sf::Font font;
-    if (!font.openFromFile("assets/fonts/arial.ttf"))
+    if (!font.openFromFile(assetPath("assets/fonts/arial.ttf")))
     {
         throw std::runtime_error("Failed to load assets/fonts/arial.ttf. Make sure the assets folder is next to Skrew.exe.");
     }
@@ -951,16 +1177,20 @@ int runApp()
     sf::Clock lobbyPollClock;
     sf::Clock playingPollClock;
     sf::Clock remoteAnimClock;
+    sf::Clock frameClock;
+    sf::Clock uiClock;
     float animDuration = 0.42f;
     float remoteAnimDuration = 0.62f;
     sf::RectangleShape ghostToHand(CARD_SIZE);
     sf::RectangleShape ghostToDiscard(CARD_SIZE);
-    sf::RectangleShape remoteGhost(OPPONENT_CARD_SIZE);
-    sf::Vector2f remoteAnimStart = { 36.f, 78.f };
+    std::vector<RemoteCardMotion> remoteCardMotions;
+    std::vector<ClickPulse> clickPulses;
+    std::array<float, 4> handHover = { 0.f, 0.f, 0.f, 0.f };
+    std::array<float, 3> pileHover = { 0.f, 0.f, 0.f };
+    std::vector<std::array<float, 4>> opponentHover;
 
     sf::Vector2f deckPos = { 830.f, 112.f };
     sf::Vector2f discardPos = { 680.f, 112.f };
-    sf::Vector2f remoteAnimEnd = discardPos;
     sf::Vector2f drawnPos = { 530.f, 112.f };
 
     sf::Text joiningTitle(font, "Choose your table name", 42);
@@ -1037,11 +1267,11 @@ int runApp()
 
     sf::RectangleShape discardBox(CARD_SIZE);
     discardBox.setPosition(discardPos);
-    discardBox.setFillColor(sf::Color(50, 50, 50));
+    discardBox.setFillColor(SLOT_EMPTY);
 
     sf::RectangleShape drawnBox(CARD_SIZE);
     drawnBox.setPosition(drawnPos);
-    drawnBox.setFillColor(sf::Color(50, 50, 50));
+    drawnBox.setFillColor(SLOT_EMPTY);
 
     std::vector<sf::RectangleShape> handBoxes;
     for (int i = 0; i < 4; i++)
@@ -1051,8 +1281,83 @@ int runApp()
         handBoxes.push_back(box);
     }
 
+    auto visualCardPosition = [&](const nlohmann::json& stateJson, const std::string& playerId, int cardIndex) -> std::optional<sf::Vector2f>
+        {
+            if (cardIndex < 0 || cardIndex >= 4)
+            {
+                return std::nullopt;
+            }
+
+            if (playerId == client.getPlayerId())
+            {
+                return handBoxes[cardIndex].getPosition();
+            }
+
+            int opponentRow = getOpponentRowForPlayer(stateJson, client.getPlayerId(), playerId);
+            if (opponentRow >= 0)
+            {
+                return getOpponentCardBounds(opponentRow, cardIndex).position;
+            }
+
+            return std::nullopt;
+        };
+
+    auto sourcePositionForCard = [&](const nlohmann::json& stateJson, const nlohmann::json& cardSlot, sf::Vector2f fallbackPosition) -> sf::Vector2f
+        {
+            std::string source = cardSource(cardSlot);
+            if (source == "pile")
+            {
+                return deckPos;
+            }
+
+            if (source == "ground")
+            {
+                return discardPos;
+            }
+
+            if (source == "action_card")
+            {
+                const nlohmann::json* swapInfo = cardSwapInfo(cardSlot);
+                if (swapInfo != nullptr)
+                {
+                    std::string fromPlayerId = jsonString(*swapInfo, { "from_player_id", "fromPlayerId" });
+                    std::optional<int> fromIndex = getIntegerField(*swapInfo, { "from_index", "fromIndex" });
+                    if (!fromPlayerId.empty() && fromIndex.has_value())
+                    {
+                        std::optional<sf::Vector2f> position = visualCardPosition(stateJson, fromPlayerId, fromIndex.value());
+                        if (position.has_value())
+                        {
+                            return position.value();
+                        }
+                    }
+                }
+            }
+
+            return fallbackPosition;
+        };
+
+    auto queueRemoteCardMotion = [&](const nlohmann::json& cardSlot, sf::Vector2f start, sf::Vector2f end)
+        {
+            RemoteCardMotion motion;
+            motion.start = start;
+            motion.end = end;
+            motion.startedAt = remoteAnimClock.getElapsedTime().asSeconds();
+            motion.duration = remoteAnimDuration;
+            motion.card.setSize(CARD_SIZE);
+            motion.card.setPosition(start);
+            setBoxTexture(motion.card, textures, cardFileName(cardSlot));
+            motion.card.setFillColor(sf::Color(255, 255, 255, 230));
+            motion.card.setOutlineThickness(2.f);
+            motion.card.setOutlineColor(ACCENT_GOLD);
+            remoteCardMotions.push_back(motion);
+            remoteAnimating = true;
+        };
+
     while (window.isOpen())
     {
+        float dt = std::min(frameClock.restart().asSeconds(), 1.f / 20.f);
+        float uiTime = uiClock.getElapsedTime().asSeconds();
+
         while (const std::optional event = window.pollEvent())
         {
             if (event->is<sf::Event::Closed>())
@@ -1252,6 +1557,7 @@ int runApp()
             else if (state == AppState::Playing && event->is<sf::Event::MouseButtonPressed>() && !animating && !remoteAnimating)
             {
                 sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+                clickPulses.push_back({ mouse, uiTime });
                 const nlohmann::json& gameState = client.getState();
                 std::optional<nlohmann::json> drawnCard = getDrawnCard(gameState);
                 std::vector<nlohmann::json> hand = getPlayerHand(gameState, client.getPlayerId());
@@ -1575,6 +1881,7 @@ int runApp()
                     }
 
                     sf::FloatRect sourceCard = getOpponentCardBounds(opponentRow, 3);
+                    sf::Vector2f remoteAnimStart = sourceCard.position;
                     if (drawPileChanged || remoteDeckDrawPlayerId == previousCurrentPlayerId)
                     {
                         remoteAnimStart = deckPos;
@@ -1587,16 +1894,57 @@ int runApp()
                     {
                         remoteAnimStart = sourceCard.position;
                     }
-                    remoteAnimEnd = discardPos;
                     std::optional<nlohmann::json> remoteDiscardCard = getDiscardCard(refreshedState);
-                    setBoxTexture(remoteGhost, textures, remoteDiscardCard.has_value() ? cardFileName(*remoteDiscardCard) : "back");
-                    remoteGhost.setPosition(remoteAnimStart);
-                    remoteGhost.setFillColor(sf::Color(255, 255, 255, 230));
-                    remoteGhost.setOutlineThickness(3.f);
-                    remoteGhost.setOutlineColor(ACCENT_GOLD);
-                    remoteAnimating = true;
-                    remoteAnimClock.restart();
+                    if (remoteDiscardCard.has_value())
+                    {
+                        queueRemoteCardMotion(*remoteDiscardCard, remoteAnimStart, discardPos);
+                    }
                     remoteDeckDrawPlayerId.clear();
+                }
+
+                if (remoteStateChanged && !animating)
+                {
+                    std::vector<nlohmann::json> otherPlayers = getOtherPlayers(refreshedState, client.getPlayerId());
+                    for (const auto& otherPlayer : otherPlayers)
+                    {
+                        std::string otherId = jsonString(otherPlayer, { "player_id", "playerId", "id" });
+                        if (otherId.empty())
+                        {
+                            continue;
+                        }
+
+                        std::vector<nlohmann::json> otherCards = getCardsFromPlayer(otherPlayer);
+                        int cardCount = std::min(static_cast<int>(otherCards.size()), 4);
+                        for (int i = 0; i < cardCount; i++)
+                        {
+                            int slotIndex = cardSlotIndex(otherCards[i], i);
+                            if (slotIndex < 0 || slotIndex >= 4 || cardSource(otherCards[i]).empty())
+                            {
+                                continue;
+                            }
+
+                            std::optional<nlohmann::json> previousCard = findPlayerCardByIndex(previousState, otherId, slotIndex);
+                            if (previousCard.has_value() && cardIdentity(previousCard.value()) == cardIdentity(otherCards[i]))
+                            {
+                                continue;
+                            }
+
+                            std::optional<sf::Vector2f> endPosition = visualCardPosition(refreshedState, otherId, slotIndex);
+                            if (!endPosition.has_value())
+                            {
+                                continue;
+                            }
+
+                            sf::Vector2f startPosition = sourcePositionForCard(refreshedState, otherCards[i], endPosition.value());
+                            if (std::abs(startPosition.x - endPosition.value().x) < 1.f &&
+                                std::abs(startPosition.y - endPosition.value().y) < 1.f)
+                            {
+                                continue;
+                            }
+
+                            queueRemoteCardMotion(otherCards[i], startPosition, endPosition.value());
+                        }
+                    }
                 }
 
                 lastObservedStateSignature = newSignature;
@@ -1627,18 +1975,23 @@ int runApp()
 
         if (state == AppState::Playing && remoteAnimating)
         {
-            float t = remoteAnimClock.getElapsedTime().asSeconds() / remoteAnimDuration;
-            if (t >= 1.0f)
+            float now = remoteAnimClock.getElapsedTime().asSeconds();
+            for (RemoteCardMotion& motion : remoteCardMotions)
             {
-                remoteAnimating = false;
-            }
-            else
-            {
+                float t = (now - motion.startedAt) / motion.duration;
                 float easedT = easeInOut(t);
-                remoteGhost.setPosition(lerp(remoteAnimStart, remoteAnimEnd, easedT));
+                motion.card.setPosition(lerp(motion.start, motion.end, easedT));
                 int alpha = static_cast<int>(170.f + 85.f * (1.f - std::abs((easedT - 0.5f) * 2.f)));
-                remoteGhost.setFillColor(sf::Color(255, 255, 255, static_cast<std::uint8_t>(alpha)));
+                motion.card.setFillColor(sf::Color(255, 255, 255, static_cast<std::uint8_t>(alpha)));
             }
+
+            remoteCardMotions.erase(
+                std::remove_if(remoteCardMotions.begin(), remoteCardMotions.end(), [now](const RemoteCardMotion& motion)
+                    {
+                        return now - motion.startedAt >= motion.duration;
+                    }),
+                remoteCardMotions.end());
+            remoteAnimating = !remoteCardMotions.empty();
         }
 
         sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
@@ -1660,7 +2013,7 @@ int runApp()
         }
         else if (state == AppState::Joining)
         {
-            drawPanel(window, { 245.f, 160.f }, { 510.f, 260.f }, TABLE_PANEL_DARK, sf::Color(72, 126, 93));
+            drawPanel(window, { 245.f, 160.f }, { 510.f, 260.f }, TABLE_PANEL_DARK, PANEL_OUTLINE);
             window.draw(joiningTitle);
             fitTextToWidth(joiningText, 410.f, 18);
             window.draw(joiningText);
@@ -1672,11 +2025,11 @@ int runApp()
             roomSelectInfo.setString("Player: " + nickname + "\nSelect a public room or create a new one.");
             fitTextToBox(roomSelectInfo, { 560.f, 58.f }, 15);
 
-            drawPanel(window, { 180.f, 48.f }, { 640.f, 545.f }, TABLE_PANEL_DARK, sf::Color(72, 126, 93));
+            drawPanel(window, { 180.f, 48.f }, { 640.f, 545.f }, TABLE_PANEL_DARK, PANEL_OUTLINE);
             window.draw(roomSelectTitle);
             window.draw(roomSelectInfo);
-            drawButton(window, createRoomButton, createRoomText, createRoomButton.getGlobalBounds().contains(mouse), ACCENT_GREEN, sf::Color(57, 166, 111));
-            drawButton(window, refreshRoomsButton, refreshRoomsText, refreshRoomsButton.getGlobalBounds().contains(mouse), ACCENT_BLUE, sf::Color(82, 121, 190));
+            drawButton(window, createRoomButton, createRoomText, createRoomButton.getGlobalBounds().contains(mouse), ACCENT_GREEN, sf::Color(96, 156, 120));
+            drawButton(window, refreshRoomsButton, refreshRoomsText, refreshRoomsButton.getGlobalBounds().contains(mouse), ACCENT_BLUE, sf::Color(90, 130, 122));
 
             if (availableRooms.empty())
             {
@@ -1698,9 +2051,9 @@ int runApp()
                     sf::RectangleShape roomButton({ roomWidth, 46.f });
                     roomButton.setPosition({ roomX, firstRoomY + i * roomHeight });
                     bool roomHovered = roomButton.getGlobalBounds().contains(mouse);
-                    roomButton.setFillColor(roomHovered ? sf::Color(70, 118, 174) : sf::Color(46, 88, 137));
-                    roomButton.setOutlineThickness(2.f);
-                    roomButton.setOutlineColor(roomHovered ? ACCENT_GOLD : sf::Color(91, 134, 161));
+                    roomButton.setFillColor(roomHovered ? TABLE_PANEL : TABLE_PANEL_DARK);
+                    roomButton.setOutlineThickness(1.f);
+                    roomButton.setOutlineColor(roomHovered ? ACCENT_GOLD : PANEL_OUTLINE);
 
                     sf::Text roomText(font, availableRooms[i].displayText, 22);
                     roomText.setFillColor(TEXT_PRIMARY);
@@ -1714,7 +2067,7 @@ int runApp()
         }
         else if (state == AppState::WaitingRoom)
         {
-            drawPanel(window, { 235.f, 70.f }, { 530.f, 500.f }, TABLE_PANEL_DARK, sf::Color(72, 126, 93));
+            drawPanel(window, { 235.f, 70.f }, { 530.f, 500.f }, TABLE_PANEL_DARK, PANEL_OUTLINE);
             if (isHost)
             {
                 std::string playerListText;
@@ -1746,7 +2099,7 @@ int runApp()
 
             if (isHost)
             {
-                drawButton(window, startButton, startButtonText, startButton.getGlobalBounds().contains(mouse), ACCENT_BLUE, sf::Color(82, 121, 190));
+                drawButton(window, startButton, startButtonText, startButton.getGlobalBounds().contains(mouse), ACCENT_BLUE, sf::Color(90, 130, 122));
             }
         }
         else if (state == AppState::Playing)
@@ -1756,23 +2109,31 @@ int runApp()
             std::vector<nlohmann::json> otherPlayers = getOtherPlayers(gameState, client.getPlayerId());
             std::optional<nlohmann::json> discardCard = getDiscardCard(gameState);
             std::optional<nlohmann::json> drawnCard = getDrawnCard(gameState);
+            std::string currentPlayerId = getCurrentPlayerId(gameState);
+            bool localTurn = currentPlayerId.empty() || currentPlayerId == client.getPlayerId() || !gameState.value("allowed_actions", nlohmann::json::array()).empty();
+            float turnPulse = 0.5f + 0.5f * std::sin(uiTime * 4.2f);
 
-            drawPanel(window, { 16.f, 52.f }, { 468.f, 466.f }, TABLE_PANEL_DARK, sf::Color(56, 112, 79));
-            drawPanel(window, { 506.f, 76.f }, { 458.f, 230.f }, TABLE_PANEL, sf::Color(76, 138, 93));
-            drawPanel(window, { 250.f, 490.f }, { 522.f, 174.f }, TABLE_PANEL_DARK, sf::Color(84, 141, 91));
+
+            drawPanel(window, { 16.f, 52.f }, { 468.f, 300.f }, TABLE_PANEL_DARK, PANEL_OUTLINE);
+            drawPanel(window, { 506.f, 76.f }, { 458.f, 230.f }, TABLE_PANEL, PANEL_OUTLINE);
+            drawPanel(window, { 250.f, 490.f }, { 522.f, 174.f }, TABLE_PANEL_DARK, PANEL_OUTLINE);
 
             setFittedText(currentTurnLabel, getCurrentTurnText(gameState), 24, 360.f, 16);
-            drawPanel(window, { 300.f, 16.f }, { 400.f, 45.f }, sf::Color(22, 53, 48), sf::Color(89, 132, 83));
+            sf::Color turnOutline = localTurn ? withAlpha(ACCENT_GOLD, static_cast<std::uint8_t>(150 + 80 * turnPulse)) : PANEL_OUTLINE;
+            drawPanel(window, { 300.f, 16.f }, { 400.f, 45.f }, localTurn ? sf::Color(42, 56, 45) : TABLE_PANEL_DARK, turnOutline);
+            currentTurnLabel.setFillColor(localTurn ? ACCENT_GOLD : TEXT_SECONDARY);
             window.draw(currentTurnLabel);
 
             bool actionTargetPhase = isActionTargetPhase(gameState);
             bool canGiveAndTake = hasAllowedAction(gameState, "resolve_give_and_take");
             bool canRevealSeeAndSwap = hasAllowedAction(gameState, "reveal_see_and_swap_target");
             bool canResolveSeeAndSwap = hasAllowedAction(gameState, "resolve_see_and_swap");
+            opponentHover.resize(otherPlayers.size());
 
             for (int playerIndex = 0; playerIndex < static_cast<int>(otherPlayers.size()); playerIndex++)
             {
                 const nlohmann::json& otherPlayer = otherPlayers[playerIndex];
+                std::string otherPlayerId = jsonString(otherPlayer, { "player_id", "playerId", "id" });
                 std::string otherName = jsonString(otherPlayer, { "nickname", "name", "player_id", "id" });
                 if (otherName.empty())
                 {
@@ -1781,7 +2142,8 @@ int runApp()
 
                 float rowY = getOpponentCardBounds(playerIndex, 0).position.y;
                 sf::Text otherNameText(font, otherName, 18);
-                otherNameText.setFillColor(TEXT_SECONDARY);
+                bool opponentTurn = !currentPlayerId.empty() && currentPlayerId == otherPlayerId;
+                otherNameText.setFillColor(opponentTurn ? ACCENT_GOLD : TEXT_SECONDARY);
                 fitTextToWidth(otherNameText, 420.f, 13);
                 otherNameText.setPosition({ 36.f, rowY - 24.f });
                 window.draw(otherNameText);
@@ -1805,8 +2167,10 @@ int runApp()
                     }
 
                     bool actionableOpponent = canRevealSeeAndSwap || (canGiveAndTake && giveAndTakeOwnIndex >= 0);
-                    styleCardSlot(otherCardBox, otherCardBox.getGlobalBounds().contains(mouse), actionableOpponent);
-                    window.draw(otherCardBox);
+                    bool hovered = otherCardBox.getGlobalBounds().contains(mouse);
+                    opponentHover[playerIndex][cardIndex] = approach(opponentHover[playerIndex][cardIndex], hovered ? 1.f : 0.f, hovered ? 9.f : 7.f, dt);
+                    styleCardSlot(otherCardBox, hovered, actionableOpponent);
+                    drawCardVisual(window, otherCardBox, hovered, actionableOpponent, !opponentTurn && !actionableOpponent && !localTurn, false, opponentHover[playerIndex][cardIndex], 0.f, uiTime);
                 }
             }
 
@@ -1826,17 +2190,20 @@ int runApp()
                 else
                 {
                     handBoxes[i].setTexture(nullptr);
-                    handBoxes[i].setFillColor(sf::Color(50, 50, 50));
+                    handBoxes[i].setFillColor(SLOT_EMPTY);
                 }
 
                 bool ownCardActionable = canSwapDrawn || canTakeDiscard || canGiveAndTake || canRevealSeeAndSwap || canResolveSeeAndSwap;
-                styleCardSlot(handBoxes[i], handBoxes[i].getGlobalBounds().contains(mouse), ownCardActionable);
+                bool hovered = handBoxes[i].getGlobalBounds().contains(mouse);
+                bool pressed = hovered && sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
+                handHover[i] = approach(handHover[i], hovered ? 1.f : 0.f, hovered ? 10.f : 7.f, dt);
+                styleCardSlot(handBoxes[i], hovered, ownCardActionable);
                 if (canGiveAndTake && i == giveAndTakeOwnIndex)
                 {
                     handBoxes[i].setOutlineThickness(5.f);
                     handBoxes[i].setOutlineColor(ACCENT_GOLD);
                 }
-                window.draw(handBoxes[i]);
+                drawCardVisual(window, handBoxes[i], hovered, ownCardActionable, !localTurn && !ownCardActionable, canGiveAndTake && i == giveAndTakeOwnIndex, handHover[i], pressed ? 1.f : 0.f, uiTime);
             }
 
             if (discardCard.has_value())
@@ -1846,9 +2213,12 @@ int runApp()
             else
             {
                 discardBox.setTexture(nullptr);
-                discardBox.setFillColor(sf::Color(50, 50, 50));
+                discardBox.setFillColor(SLOT_EMPTY);
             }
-            styleCardSlot(discardBox, discardBox.getGlobalBounds().contains(mouse), drawnCard.has_value() || hasAllowedAction(gameState, "take_discard_and_swap") || hasAllowedAction(gameState, "cancel_see_and_swap"));
+            bool discardHovered = discardBox.getGlobalBounds().contains(mouse);
+            bool discardActionable = drawnCard.has_value() || hasAllowedAction(gameState, "take_discard_and_swap") || hasAllowedAction(gameState, "cancel_see_and_swap");
+            pileHover[1] = approach(pileHover[1], discardHovered ? 1.f : 0.f, discardHovered ? 10.f : 7.f, dt);
+            styleCardSlot(discardBox, discardHovered, discardActionable);
 
             if (drawnCard.has_value())
             {
@@ -1857,23 +2227,28 @@ int runApp()
             else
             {
                 drawnBox.setTexture(nullptr);
-                drawnBox.setFillColor(sf::Color(50, 50, 50));
+                drawnBox.setFillColor(SLOT_EMPTY);
             }
-            styleCardSlot(drawnBox, drawnBox.getGlobalBounds().contains(mouse), drawnCard.has_value());
+            bool drawnHovered = drawnBox.getGlobalBounds().contains(mouse);
+            pileHover[2] = approach(pileHover[2], drawnHovered ? 1.f : 0.f, drawnHovered ? 10.f : 7.f, dt);
+            styleCardSlot(drawnBox, drawnHovered, drawnCard.has_value());
 
-            window.draw(discardBox);
-            window.draw(drawnBox);
+            drawCardVisual(window, discardBox, discardHovered, discardActionable, !discardActionable && !localTurn, false, pileHover[1], discardHovered && sf::Mouse::isButtonPressed(sf::Mouse::Button::Left) ? 1.f : 0.f, uiTime);
+            drawCardVisual(window, drawnBox, drawnHovered, drawnCard.has_value(), !drawnCard.has_value(), false, pileHover[2], 0.f, uiTime);
             drawCardLabel(window, font, "Discard", discardPos, TEXT_SECONDARY);
             drawCardLabel(window, font, drawnCard.has_value() ? "Drawn card" : "Drawn slot", drawnPos, drawnCard.has_value() ? ACCENT_GOLD : TEXT_SECONDARY);
 
+            bool deckHovered = sf::FloatRect(deckPos, CARD_SIZE).contains(mouse);
+            bool deckActionable = !drawnCard.has_value() && hasAllowedAction(gameState, "draw_from_deck");
+            pileHover[0] = approach(pileHover[0], deckHovered ? 1.f : 0.f, deckHovered ? 10.f : 7.f, dt);
             for (int i = 0; i < 3; i++)
             {
                 sf::RectangleShape deckLayer(CARD_SIZE);
                 deckLayer.setTexture(deckBox.getTexture(), true);
                 deckLayer.setFillColor(sf::Color::White);
                 deckLayer.setPosition({ deckPos.x - (i * 4.f), deckPos.y - (i * 4.f) });
-                styleCardSlot(deckLayer, i == 0 && sf::FloatRect(deckPos, CARD_SIZE).contains(mouse), i == 0 && !drawnCard.has_value() && hasAllowedAction(gameState, "draw_from_deck"));
-                window.draw(deckLayer);
+                styleCardSlot(deckLayer, i == 0 && deckHovered, i == 0 && deckActionable);
+                drawCardVisual(window, deckLayer, i == 0 && deckHovered, i == 0 && deckActionable, !deckActionable && !localTurn, false, i == 0 ? pileHover[0] : 0.f, i == 0 && deckHovered && sf::Mouse::isButtonPressed(sf::Mouse::Button::Left) ? 1.f : 0.f, uiTime);
             }
             drawCardLabel(window, font, "Deck", deckPos, TEXT_SECONDARY);
 
@@ -1922,13 +2297,18 @@ int runApp()
 
             if (remoteAnimating)
             {
-                sf::RectangleShape remoteShadow(CARD_SIZE);
-                remoteShadow.setPosition(remoteGhost.getPosition() + sf::Vector2f(8.f, 10.f));
-                remoteShadow.setFillColor(sf::Color(0, 0, 0, 80));
-                remoteShadow.setOutlineThickness(0.f);
-                window.draw(remoteShadow);
-                window.draw(remoteGhost);
+                for (const RemoteCardMotion& motion : remoteCardMotions)
+                {
+                    sf::RectangleShape remoteShadow(CARD_SIZE);
+                    remoteShadow.setPosition(motion.card.getPosition() + sf::Vector2f(8.f, 10.f));
+                    remoteShadow.setFillColor(sf::Color(0, 0, 0, 70));
+                    remoteShadow.setOutlineThickness(0.f);
+                    window.draw(remoteShadow);
+                    window.draw(motion.card);
+                }
             }
+
+            drawClickPulses(window, clickPulses, uiTime);
         }
 
         if (!statusMessage.empty())
@@ -1950,6 +2330,7 @@ int main()
 {
     try
     {
+        configureDllSearchPath();
         return runApp();
     }
     catch (const std::exception& ex)

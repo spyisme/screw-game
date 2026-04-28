@@ -1,5 +1,6 @@
 #include "../include/TextureManager.h"
 
+#include <filesystem>
 #include <iostream>
 
 sf::Texture* TextureManager::getTexture(const std::string& fileName)
@@ -11,7 +12,11 @@ sf::Texture* TextureManager::getTexture(const std::string& fileName)
     }
 
     sf::Texture texture;
-    std::string path = "assets/cards/" + fileName + ".png";
+    std::string path = "dlls/assets/cards/" + fileName + ".png";
+    if (!std::filesystem::exists(path))
+    {
+        path = "assets/cards/" + fileName + ".png";
+    }
 
     if (!texture.loadFromFile(path))
     {

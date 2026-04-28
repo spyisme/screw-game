@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Join-Path $root "Skrew"
 $finalDir = Join-Path $root "final"
+$dllDir = Join-Path $finalDir "dlls"
 $sfmlDir = "C:\Users\Spy\source\SFML-3.0.2"
 $sfmlBin = Join-Path $sfmlDir "bin"
 
@@ -22,10 +23,12 @@ if (-not (Test-Path -LiteralPath $sfmlBin)) {
     throw "SFML bin folder not found: $sfmlBin"
 }
 
-New-Item -ItemType Directory -Force -Path $finalDir | Out-Null
+if (Test-Path -LiteralPath $finalDir) {
+    Remove-Item -LiteralPath $finalDir -Recurse -Force
+}
 
-Get-ChildItem -LiteralPath $finalDir -Filter "sfml-*-d-3.dll" -File -ErrorAction SilentlyContinue |
-    Remove-Item -Force
+New-Item -ItemType Directory -Force -Path $finalDir | Out-Null
+New-Item -ItemType Directory -Force -Path $dllDir | Out-Null
 
 Copy-Item -LiteralPath $BuiltExe -Destination (Join-Path $finalDir "Skrew.exe") -Force
 
@@ -38,7 +41,7 @@ $sfmlDlls = @(
 )
 
 foreach ($dll in $sfmlDlls) {
-    Copy-Item -LiteralPath (Join-Path $sfmlBin $dll) -Destination $finalDir -Force
+    Copy-Item -LiteralPath (Join-Path $sfmlBin $dll) -Destination $dllDir -Force
 }
 
 $redistRoot = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC"
@@ -50,7 +53,7 @@ $redist = Get-ChildItem -LiteralPath $redistRoot -Directory -ErrorAction Silentl
 
 if ($redist) {
     $crtDir = Join-Path $redist.FullName "x64\Microsoft.VC145.CRT"
-    Copy-Item -Path (Join-Path $crtDir "*.dll") -Destination $finalDir -Force
+    Copy-Item -Path (Join-Path $crtDir "*.dll") -Destination $dllDir -Force
 }
 
 $ucrtRoot = "C:\Program Files (x86)\Windows Kits\10\Redist"
@@ -61,11 +64,11 @@ $ucrt = Get-ChildItem -LiteralPath $ucrtRoot -Directory -ErrorAction SilentlyCon
 
 if ($ucrt) {
     $ucrtDir = Join-Path $ucrt.FullName "ucrt\DLLs\x64"
-    Copy-Item -Path (Join-Path $ucrtDir "*.dll") -Destination $finalDir -Force
+    Copy-Item -Path (Join-Path $ucrtDir "*.dll") -Destination $dllDir -Force
 }
 
 Copy-Item -LiteralPath (Join-Path $projectDir "config.json") -Destination $finalDir -Force
-Copy-Item -LiteralPath (Join-Path $projectDir "assets") -Destination $finalDir -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $projectDir "assets") -Destination $dllDir -Recurse -Force
 
 $zipPath = Join-Path $root "final.zip"
 if (Test-Path -LiteralPath $zipPath) {
