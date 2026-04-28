@@ -15,6 +15,7 @@ private:
     sf::Font& font;
 
     sf::Text title;
+    sf::Text subtitle;
 
     sf::RectangleShape startButton;
     sf::Text startText;

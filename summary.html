@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screw C++ Client Project Summary</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #1f2933;
+            line-height: 1.55;
+        }
+
+        header {
+            background: #173f35;
+            color: white;
+            padding: 32px 44px;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 28px 24px 60px;
+        }
+
+        section {
+            background: white;
+            border: 1px solid #d8dee4;
+            border-radius: 8px;
+            padding: 22px 26px;
+            margin-bottom: 22px;
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+            font-size: 32px;
+        }
+
+        h2 {
+            color: #173f35;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+
+        th, td {
+            border: 1px solid #d8dee4;
+            padding: 10px 12px;
+            vertical-align: top;
+            text-align: left;
+        }
+
+        th {
+            background: #eef2f3;
+        }
+
+        code {
+            background: #eef2f3;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-family: Consolas, monospace;
+        }
+
+        pre {
+            background: #111827;
+            color: #f9fafb;
+            padding: 14px 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+
+        .note {
+            background: #fff8e6;
+            border-color: #f3d27a;
+        }
+
+        .path {
+            white-space: nowrap;
+            font-family: Consolas, monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Screw C++ Client Project Summary</h1>
+        <p>
+            This document describes the current C++/SFML frontend client for the multiplayer card game Screw.
+            The Flask backend owns rooms, players, cards, turns, validation, hidden-card visibility, and game rules.
+            The C++ client handles rendering, input, simple animations, texture caching, and HTTP calls.
+        </p>
+    </header>
+
+    <main>
+        <section>
+            <h2>Project Overview</h2>
+            <p>
+                The project is a Windows Visual Studio C++ application using SFML 3 for graphics.
+                It connects to the Flask backend using values from <code>config.json</code>.
+                The app window title and UI use the game name <strong>Screw</strong>. The default launch window is
+                <code>1000x700</code>, and the packaged config can override the launch width and height.
+            </p>
+            <p>
+                The active gameplay client no longer uses local deck drawing or local player-hand mutation as the source of truth.
+                Instead, it reads the latest JSON state from the backend and sends action requests when the player clicks the deck,
+                discard pile, or a hand card.
+            </p>
+        </section>
+
+        <section>
+            <h2>Current User Flow</h2>
+            <ol>
+                <li>The app starts on the main menu.</li>
+                <li>Clicking <code>Start Game</code> asks for a nickname.</li>
+                <li>After nickname entry, the client calls <code>GET /rooms</code> and shows public rooms.</li>
+                <li>The player can click a room to join, click <code>Refresh Rooms</code>, or click <code>Create New Room</code>.</li>
+                <li>The waiting room shows the room and player name.</li>
+                <li>The host sees the room code, joined player names, and a count such as <code>2/4</code>.</li>
+                <li>The host waiting room polls <code>GET /rooms/&lt;room_id&gt;/lobby</code> every 2 seconds to update player names and count.</li>
+                <li>The host sees the Start button and can start the game with Enter or by clicking Start.</li>
+                <li>Players who join an existing room do not see the Start button. They see <code>Waiting for host to start...</code>.</li>
+                <li>Non-host players poll the backend every 2 seconds while waiting for the host to start.</li>
+                <li>When the game starts, the client renders the player-specific backend state and shows the current turn at the top.</li>
+                <li>During play, every client polls game state every 2 seconds.</li>
+                <li>Opponent cards are rendered at the same size as the local player's cards, so all players read at one visual scale.</li>
+                <li>Remote player discard animations now infer the source from state changes: deck/card-pile discards animate from the deck pile, pending drawn cards animate from the drawn slot, and hand-origin actions animate from the opponent row.</li>
+                <li>The game table uses highlighted card outlines to show possible deck, discard, and hand-card actions.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>UI/UX State</h2>
+            <ul>
+                <li>The main menu now uses a table-style framed scene, centered title, subtitle, hover-aware Start and Exit buttons, and clearer visual hierarchy.</li>
+                <li>The nickname screen now has a framed panel, title, input line, and Enter hint instead of a single raw text line.</li>
+                <li>The room browser uses a framed layout, stronger button styling, hover outlines, and better empty-room text.</li>
+                <li>The waiting room is framed and separates host controls from joined-player waiting state.</li>
+                <li>The gameplay screen is divided into opponent area, central table area, and player hand area.</li>
+                <li>The deck, discard pile, drawn-card slot, and hand cards have labels and hover/action outlines.</li>
+                <li>Self and opponent cards share the same <code>CARD_SIZE</code>, currently <code>96x132</code>, with common spacing constants for predictable layout edits.</li>
+                <li>Long UI strings are fitted before drawing so player names, room rows, hints, current-turn labels, and status messages do not overlap surrounding controls.</li>
+                <li>Actionable card slots use green or gold outlines when the backend says the corresponding action is allowed.</li>
+                <li>Remote actions use eased ghost-card movement with a shadow and highlight outline, matching the table layout instead of appearing as a disconnected jump.</li>
+                <li>Status and error messages are shown in a bottom status bar instead of floating over the top-left of the play field.</li>
+                <li>The SFML view is fixed to a <code>1000x700</code> logical canvas, so custom launch sizes from config scale the same UI layout.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Runtime Config</h2>
+            <p>
+                The executable reads <code>config.json</code> from the working directory at startup, so the backend host
+                and port can be changed without recompiling.
+            </p>
+            <pre>{
+  "host": "127.0.0.1",
+  "port": 5000,
+  "width": 1000,
+  "height": 700
+}</pre>
+            <p>
+                The packaged build includes <code>final/config.json</code> beside <code>final/Skrew.exe</code>.
+                The source project also includes <code>Skrew/config.json</code> for running from the project folder.
+                If the config file is missing or invalid, the client falls back to <code>127.0.0.1:5000</code>
+                and <code>1000x700</code>. If <code>width</code> or <code>height</code> is missing, not an integer,
+                or less than <code>1</code>, that value falls back to the default.
+            </p>
+        </section>
+
+        <section>
+            <h2>Source Files</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="path">Skrew/src/main.cpp</td>
+                        <td>
+                            Main application entry point. Creates the SFML window, owns the app state machine, handles menu,
+                            nickname input, room discovery, waiting room, gameplay input, polling, animation, and rendering.
+                            Reads <code>config.json</code>, then reads cards, discard, pending drawn card, current turn,
+                            lobby players, allowed actions, and launch window size from backend/config JSON.
+                            Also defines shared UI helpers for panels, buttons, card labels, highlighted slots, fitted text,
+                            status bars, eased animation, and remote action source detection.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/GameClient.cpp</td>
+                        <td>
+                            Implements the backend HTTP client. Sends create room, list rooms, join, start, refresh state,
+                            draw, swap, drop, and take-discard requests. Stores latest JSON state and last error message.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/TextureManager.cpp</td>
+                        <td>
+                            Implements simple texture caching. Loads card images from <code>assets/cards/&lt;fileName&gt;.png</code>
+                            once and reuses them.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/MainMenu.cpp</td>
+                        <td>
+                            Draws and handles the main menu with the Screw title, subtitle, table-style background,
+                            hover-aware Start Game button, and hover-aware Exit button.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/Deck.cpp</td>
+                        <td>
+                            Legacy/local deck implementation. It remains in the project, but active gameplay should not use it as
+                            the source of truth because the backend owns real game logic.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/Player.cpp</td>
+                        <td>
+                            Legacy/local player implementation. It remains in the project, but active gameplay should not mutate
+                            local player hands because backend state is authoritative.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Header Files</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="path">Skrew/include/GameClient.h</td>
+                        <td>
+                            Declares the <code>GameClient</code> class. Its private data includes backend host, port, room ID,
+                            player ID, latest JSON state, and last error.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/TextureManager.h</td>
+                        <td>
+                            Declares the <code>TextureManager</code> class and its texture map.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/MainMenu.h</td>
+                        <td>
+                            Declares the main menu UI class, subtitle text, menu buttons, and <code>MenuResult</code> enum.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/Card.h</td>
+                        <td>
+                            Defines the legacy local <code>Card</code> struct and <code>CardType</code> enum.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/Deck.h</td>
+                        <td>
+                            Declares the legacy local <code>Deck</code> class.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/Player.h</td>
+                        <td>
+                            Declares the legacy local <code>Player</code> class.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Bundled Libraries</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Library</th>
+                        <th>Location</th>
+                        <th>Use</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>cpp-httplib</td>
+                        <td class="path">Skrew/include/third_party/httplib.h</td>
+                        <td>
+                            Single-header HTTP client library used by <code>GameClient</code> to call the Flask backend.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>nlohmann/json</td>
+                        <td class="path">Skrew/include/third_party/json.hpp</td>
+                        <td>
+                            Single-header JSON library used for request bodies, response parsing, and backend state storage.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>SFML 3.0.2</td>
+                        <td class="path">C:/Users/Spy/source/SFML-3.0.2</td>
+                        <td>
+                            External graphics/window/audio/network library referenced by the Visual Studio project.
+                            The packaged release executable includes SFML DLLs in the <code>final</code> folder.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Backend Endpoints Used</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Endpoint</th>
+                        <th>Client Method</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>POST /rooms</code></td>
+                        <td><code>GameClient::createRoom</code></td>
+                        <td>Create a new public room.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET /rooms</code></td>
+                        <td><code>GameClient::fetchRooms</code></td>
+                        <td>Fetch public rooms for the room discovery page.</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST /rooms/&lt;room&gt;/join</code></td>
+                        <td><code>GameClient::joinRoom</code></td>
+                        <td>Join an existing room or newly created room.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET /rooms/&lt;room&gt;/lobby</code></td>
+                        <td><code>GameClient::fetchLobby</code></td>
+                        <td>Poll waiting-room player names and player count for the host lobby display.</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST /rooms/&lt;room&gt;/start</code></td>
+                        <td><code>GameClient::startGame</code></td>
+                        <td>Host starts the game.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET /rooms/&lt;room&gt;/state?player_id=...</code></td>
+                        <td><code>GameClient::refreshState</code></td>
+                        <td>Fetch player-specific game state for rendering.</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST /rooms/&lt;room&gt;/actions</code></td>
+                        <td>
+                            <code>drawFromDeck</code>, <code>dropDrawnCard</code>,
+                            <code>swapDrawnWithOwnCard</code>, <code>takeDiscardAndSwap</code>
+                        </td>
+                        <td>Send gameplay actions to the backend.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Backend JSON Fields Rendered by Client</h2>
+            <ul>
+                <li><code>players[].cards[]</code>: player card slots.</li>
+                <li><code>face_down</code>: hidden cards render as <code>back.png</code>.</li>
+                <li><code>card.image_name</code>: visible cards render using this image name.</li>
+                <li><code>pending_drawn_card</code>: drawn card waiting for swap/drop decision.</li>
+                <li><code>top_discard_card</code> and <code>top_discard</code>: discard pile top card.</li>
+                <li><code>allowed_actions</code>: client checks this before sending gameplay actions.</li>
+                <li><code>current_player_nickname</code>: displayed at the top as the current player turn.</li>
+                <li><code>current_player_id</code>: fallback for the current turn label when no nickname is provided.</li>
+                <li><code>you.nickname</code>: player label fallback after game state is available.</li>
+                <li><code>room_code</code>: displayed in the waiting room instead of the internal room ID.</li>
+                <li><code>players[].nickname</code>: used for lobby player names and opponent labels.</li>
+                <li><code>players[].cards</code>: own cards are rendered from state; opponent cards are shown as backs.</li>
+                <li><code>max_players</code>: used with lobby player count for displays such as <code>2/4</code>.</li>
+                <li><code>status</code> and <code>phase</code>: included in the state signature used to detect remote action animation changes.</li>
+                <li><code>draw_pile_count</code>: included in the state signature when available.</li>
+                <li><code>deck_count</code>, <code>deckCount</code>, <code>cards_pile_count</code>, and <code>cardsPileCount</code>: fallback draw/card-pile count names used to detect whether a remote discard came from the card pile.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Assets</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Path</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="path">Skrew/assets/fonts/arial.ttf</td>
+                        <td>Font used by all SFML text labels and buttons.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/assets/cards/back.png</td>
+                        <td>Card back texture for hidden cards and deck rendering.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/assets/cards/-1.png through 10.png</td>
+                        <td>Number card images.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/assets/cards/20.png and 25.png</td>
+                        <td>High-value number card images.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/assets/cards/GiveAndTake.png</td>
+                        <td>Special card image for GiveAndTake.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/assets/cards/Seeandswab.png</td>
+                        <td>Special card image for SeeAndSwab.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Build Files</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="path">Skrew/config.json</td>
+                        <td>Editable backend host, port, launch width, and launch height config for running from the project folder.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew.slnx</td>
+                        <td>Visual Studio solution file.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/Skrew.vcxproj</td>
+                        <td>
+                            Visual Studio C++ project file. Includes source files, headers, C++20 setting,
+                            SFML include path, SFML library path, and SFML libraries for x64 Release packaging.
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/Skrew.vcxproj.filters</td>
+                        <td>Visual Studio file organization for Solution Explorer.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">package_final.ps1</td>
+                        <td>
+                            Post-build packaging script. It copies the release executable, runtime DLLs,
+                            <code>Skrew/config.json</code>, and <code>Skrew/assets/</code> into <code>final/</code>,
+                            then creates <code>final.zip</code>.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <h3>Build Command Used</h3>
+            <pre>&amp; "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" Skrew.slnx /p:Configuration=Release /p:Platform=x64 /m</pre>
+        </section>
+
+        <section>
+            <h2>Packaged Output</h2>
+            <p>
+                A runnable release package exists in the root <code>final</code> folder.
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Path</th>
+                        <th>Contents</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="path">final/Skrew.exe</td>
+                        <td>Compiled C++ client executable.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">final/sfml-*-3.dll</td>
+                        <td>SFML DLLs required to run the release executable.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">final/config.json</td>
+                        <td>Editable backend host, port, launch width, and launch height config placed beside the packaged executable.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">final/assets/</td>
+                        <td>Copied font and card image assets used at runtime.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="note">
+            <h2>Important Notes</h2>
+            <ul>
+                <li>The backend host and port are read from <code>config.json</code> beside the executable.</li>
+                <li>The default backend config is <code>127.0.0.1:5000</code>.</li>
+                <li>The launch window size is read from <code>width</code> and <code>height</code> in <code>config.json</code>; missing or invalid values fall back to <code>1000x700</code>.</li>
+                <li>Use <code>127.0.0.1</code> instead of <code>localhost</code> if Windows IPv6/IPv4 resolution causes connection issues.</li>
+                <li>The host cannot start the game until at least two players have joined, according to the backend rules.</li>
+                <li>Only the host sees the waiting-room Start button. Joined players wait for the host and poll for game start.</li>
+                <li>The host lobby polls every 2 seconds to show updated joined player names and count.</li>
+                <li>The playing screen polls every 2 seconds to keep all clients synchronized.</li>
+                <li>The gameplay screen shows the current turn from <code>current_player_nickname</code> or <code>current_player_id</code>.</li>
+                <li>Remote action animation is visual-only and based on polling differences, because the backend state does not expose a full action event log. The client compares previous and refreshed state to choose deck, drawn-slot, or opponent-row animation sources.</li>
+                <li>The new UI highlights only actions inferred from <code>allowed_actions</code>; backend validation remains the source of truth.</li>
+                <li>The active gameplay renderer depends on <code>GET /rooms/&lt;room_id&gt;/state?player_id=...</code>.</li>
+                <li>Legacy <code>Deck</code> and <code>Player</code> classes remain for now but should not become gameplay authority again.</li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

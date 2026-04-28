@@ -2,29 +2,39 @@
 
 MainMenu::MainMenu(sf::Font& font)
     : font(font),
-    title(font, "Skrew", 48),
+    title(font, "Screw", 64),
+    subtitle(font, "Multiplayer card table", 22),
     startText(font, "Start Game", 28),
     exitText(font, "Exit", 28)
 {
-    // 1. Title Styling & Positioning
-    title.setFillColor(sf::Color::White);
+    title.setFillColor(sf::Color(252, 248, 229));
     sf::FloatRect titleBounds = title.getLocalBounds();
     title.setOrigin({
         titleBounds.position.x + titleBounds.size.x / 2.f,
         titleBounds.position.y + titleBounds.size.y / 2.f
         });
-    title.setPosition({ 550.f, 120.f });
+    title.setPosition({ 500.f, 126.f });
 
-    // 2. Button Setup
-    startButton.setSize({ 250.f, 70.f });
-    startButton.setFillColor(sf::Color(100, 100, 250));
-    startButton.setPosition({ 425.f, 250.f });
+    subtitle.setFillColor(sf::Color(195, 210, 194));
+    sf::FloatRect subtitleBounds = subtitle.getLocalBounds();
+    subtitle.setOrigin({
+        subtitleBounds.position.x + subtitleBounds.size.x / 2.f,
+        subtitleBounds.position.y + subtitleBounds.size.y / 2.f
+        });
+    subtitle.setPosition({ 500.f, 180.f });
 
-    exitButton.setSize({ 250.f, 70.f });
-    exitButton.setFillColor(sf::Color(180, 70, 70));
-    exitButton.setPosition({ 425.f, 360.f });
+    startButton.setSize({ 280.f, 64.f });
+    startButton.setFillColor(sf::Color(35, 122, 84));
+    startButton.setOutlineThickness(2.f);
+    startButton.setOutlineColor(sf::Color(121, 209, 164));
+    startButton.setPosition({ 360.f, 275.f });
 
-    // 3. Text Positioning (Now that buttons have positions)
+    exitButton.setSize({ 280.f, 58.f });
+    exitButton.setFillColor(sf::Color(92, 62, 64));
+    exitButton.setOutlineThickness(2.f);
+    exitButton.setOutlineColor(sf::Color(153, 109, 111));
+    exitButton.setPosition({ 360.f, 363.f });
+
     startText.setFillColor(sf::Color::White);
     sf::FloatRect startBounds = startText.getLocalBounds();
     startText.setOrigin({
@@ -69,7 +79,32 @@ MenuResult MainMenu::handleEvent(const sf::Event& event, const sf::RenderWindow&
 
 void MainMenu::draw(sf::RenderWindow& window)
 {
+    sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+    bool hoveringStart = startButton.getGlobalBounds().contains(mouse);
+    bool hoveringExit = exitButton.getGlobalBounds().contains(mouse);
+
+    startButton.setFillColor(hoveringStart ? sf::Color(47, 151, 102) : sf::Color(35, 122, 84));
+    exitButton.setFillColor(hoveringExit ? sf::Color(118, 71, 75) : sf::Color(92, 62, 64));
+
+    sf::RectangleShape tableGlow({ 680.f, 420.f });
+    tableGlow.setPosition({ 160.f, 90.f });
+    tableGlow.setFillColor(sf::Color(21, 72, 58));
+    tableGlow.setOutlineThickness(3.f);
+    tableGlow.setOutlineColor(sf::Color(61, 129, 99));
+
+    sf::RectangleShape topRail({ 760.f, 32.f });
+    topRail.setPosition({ 120.f, 535.f });
+    topRail.setFillColor(sf::Color(77, 50, 39));
+
+    sf::RectangleShape bottomRail({ 640.f, 20.f });
+    bottomRail.setPosition({ 180.f, 576.f });
+    bottomRail.setFillColor(sf::Color(45, 33, 29));
+
+    window.draw(tableGlow);
+    window.draw(topRail);
+    window.draw(bottomRail);
     window.draw(title);
+    window.draw(subtitle);
     window.draw(startButton);
     window.draw(startText);
     window.draw(exitButton);

@@ -32,10 +32,6 @@ void Deck::createDeck()
      
 	// 66 - 56 = 10 cards left for special cards 
 
-    // Basra (4 copies)
-    for (int i = 0; i < 4; i++)
-        deckArray.push_back(Card(CardType::Basra));
-
     // GiveAndTake (4 copies)
     for (int i = 0; i < 4; i++)
         deckArray.push_back(Card(CardType::GiveAndTake));

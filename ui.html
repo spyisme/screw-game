@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Skrew UI Guide</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #102d26;
+            --panel: #183f34;
+            --panel-strong: #1f5b43;
+            --text: #f8f4e0;
+            --muted: #c9d9c9;
+            --accent: #e8c45f;
+            --line: #5d8f6b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.55;
+        }
+
+        main {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 34px 22px 48px;
+        }
+
+        h1, h2 {
+            margin: 0 0 12px;
+            line-height: 1.15;
+        }
+
+        h1 {
+            font-size: 34px;
+        }
+
+        h2 {
+            margin-top: 30px;
+            font-size: 22px;
+            color: var(--accent);
+        }
+
+        p {
+            margin: 0 0 14px;
+            color: var(--muted);
+        }
+
+        code {
+            color: var(--text);
+            background: rgba(0, 0, 0, 0.28);
+            padding: 2px 5px;
+            border-radius: 4px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .card {
+            border: 1px solid var(--line);
+            background: var(--panel);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .card strong {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text);
+        }
+
+        ul {
+            margin: 8px 0 0;
+            padding-left: 22px;
+            color: var(--muted);
+        }
+
+        li {
+            margin: 7px 0;
+        }
+
+        .note {
+            border-left: 4px solid var(--accent);
+            background: var(--panel-strong);
+            padding: 14px 16px;
+            margin-top: 18px;
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Skrew UI Guide</h1>
+        <p>
+            The client UI is an SFML desktop interface drawn from C++ code. The main game screen uses a fixed
+            1000 by 700 world view, so most positions are explicit coordinates inside <code>Skrew/src/main.cpp</code>.
+        </p>
+
+        <h2>How The UI Works</h2>
+        <div class="grid">
+            <section class="card">
+                <strong>Menu and flow</strong>
+                <p>
+                    <code>AppState</code> in <code>main.cpp</code> switches between the main menu, nickname entry,
+                    room select, waiting room, and active game table.
+                </p>
+            </section>
+            <section class="card">
+                <strong>Game table</strong>
+                <p>
+                    The playing screen draws three panels: opponents, table piles, and your hand. Opponent and self
+                    cards use the same <code>CARD_SIZE</code>, currently <code>96x132</code>, so all players read at
+                    the same visual scale.
+                </p>
+            </section>
+            <section class="card">
+                <strong>Interactions</strong>
+                <p>
+                    Mouse hit boxes come from the same rectangle shapes used for drawing. Opponent card clicks use
+                    <code>getOpponentCardBounds()</code>; self card clicks use <code>handBoxes</code>.
+                </p>
+            </section>
+            <section class="card">
+                <strong>Animations</strong>
+                <p>
+                    Local swaps and remote player actions use ghost card rectangles. Movement is eased with
+                    <code>easeInOut()</code> so card motion starts and stops smoothly. Remote discards start from the
+                    deck pile when the draw/card-pile count changed, from the drawn slot when a pending drawn card was
+                    already visible, and from the opponent row for hand-origin actions.
+                </p>
+            </section>
+            <section class="card">
+                <strong>Text safety</strong>
+                <p>
+                    Labels and messages are fitted before drawing with <code>setFittedText()</code>,
+                    <code>fitTextToWidth()</code>, and <code>fitTextToBox()</code> to avoid overlapping names,
+                    hints, room rows, and status text.
+                </p>
+            </section>
+        </div>
+
+        <h2>Files Used</h2>
+        <ul>
+            <li><code>Skrew/src/main.cpp</code>: Most UI layout, rendering, text fitting, gameplay click handling, and animations.</li>
+            <li><code>Skrew/include/MainMenu.h</code> and <code>Skrew/src/MainMenu.cpp</code>: Main menu buttons and title screen.</li>
+            <li><code>Skrew/include/GameClient.h</code> and <code>Skrew/src/GameClient.cpp</code>: Backend requests and game state refreshes used by the UI.</li>
+            <li><code>Skrew/include/TextureManager.h</code> and <code>Skrew/src/TextureManager.cpp</code>: Card image loading from <code>assets/cards</code>.</li>
+            <li><code>Skrew/assets/cards/*.png</code>: Card face and back images.</li>
+            <li><code>Skrew/assets/fonts/arial.ttf</code>: Font used by all SFML text.</li>
+            <li><code>Skrew/config.json</code>: Backend host, port, and window size.</li>
+        </ul>
+
+        <h2>How To Edit It</h2>
+        <ul>
+            <li>Change card size in <code>CARD_SIZE</code> near the top of <code>main.cpp</code>. Player cards, opponent cards, piles, hit boxes, and animations follow this value.</li>
+            <li>Change spacing with <code>PLAYER_CARD_SPACING</code>, <code>OPPONENT_CARD_SPACING</code>, and <code>OPPONENT_ROW_SPACING</code>.</li>
+            <li>Move the table piles by editing <code>deckPos</code>, <code>discardPos</code>, and <code>drawnPos</code> inside <code>runApp()</code>.</li>
+            <li>Move your hand by editing the <code>handBoxes</code> loop in <code>runApp()</code>.</li>
+            <li>Move opponent cards by editing <code>getOpponentCardBounds()</code>.</li>
+            <li>Adjust colors with the constants near the top of <code>main.cpp</code>, such as <code>TABLE_PANEL</code>, <code>TEXT_PRIMARY</code>, and <code>ACCENT_GOLD</code>.</li>
+            <li>Adjust remote action feel with <code>remoteAnimDuration</code> and <code>easeInOut()</code>.</li>
+            <li>Adjust remote action source detection near the polling block that compares <code>previousState</code> and <code>refreshedState</code>. Deck-origin discards depend on draw/card-pile count fields such as <code>draw_pile_count</code>, <code>deck_count</code>, or <code>cards_pile_count</code>.</li>
+            <li>Prevent text overlap by using <code>setFittedText()</code>, <code>fitTextToWidth()</code>, or <code>fitTextToBox()</code> before drawing text.</li>
+        </ul>
+
+        <div class="note">
+            Keep the SFML view at 1000 by 700 unless you also update the hard-coded panel and card positions.
+            The configured window size can change, but the UI coordinates are still drawn in that fixed view.
+        </div>
+    </main>
+</body>
+</html>
