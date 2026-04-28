@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Skrew Codebase Final Summary</title>
+    <style>
+        :root {
+            --bg: #f5f6f3;
+            --ink: #1f2925;
+            --muted: #5b6861;
+            --panel: #ffffff;
+            --line: #d7ded8;
+            --head: #173f35;
+            --soft: #edf4ef;
+            --accent: #b58b25;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: Arial, Helvetica, sans-serif;
+            line-height: 1.55;
+        }
+
+        header {
+            background: var(--head);
+            color: white;
+            padding: 34px 44px;
+        }
+
+        header p {
+            max-width: 1050px;
+            margin: 8px 0 0;
+            color: #dce8df;
+        }
+
+        main {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 28px 22px 64px;
+        }
+
+        section {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 22px 24px;
+            margin-bottom: 20px;
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
+            line-height: 1.2;
+        }
+
+        h1 { margin-bottom: 6px; font-size: 34px; }
+        h2 {
+            color: var(--head);
+            border-bottom: 1px solid var(--line);
+            padding-bottom: 8px;
+            margin-bottom: 14px;
+        }
+        h3 { margin-bottom: 8px; color: #315246; }
+
+        p { margin: 0 0 12px; }
+        ul, ol { margin: 8px 0 0; padding-left: 23px; }
+        li { margin: 6px 0; }
+
+        code {
+            background: var(--soft);
+            border: 1px solid #dfe8e1;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.95em;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+
+        th, td {
+            border: 1px solid var(--line);
+            padding: 9px 11px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th { background: var(--soft); color: #20372f; }
+        .path {
+            font-family: Consolas, "Courier New", monospace;
+            white-space: nowrap;
+            font-size: 13px;
+        }
+        .note {
+            background: #fff8e5;
+            border-color: #ead28b;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 12px;
+        }
+        .tile {
+            background: var(--soft);
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            padding: 14px;
+        }
+        .tile strong { display: block; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Skrew Codebase Final Summary</h1>
+        <p>
+            This file explains the whole repository: what the application is, how it runs, how the main systems work,
+            and what each tracked project file or packaged file is responsible for.
+        </p>
+    </header>
+
+    <main>
+        <section>
+            <h2>Overall Purpose</h2>
+            <p>
+                <strong>Skrew</strong> is a Windows C++ desktop client for a multiplayer card game named Screw/Skrew.
+                It uses SFML 3 for the graphical interface, cpp-httplib for HTTP calls, and nlohmann/json for JSON parsing.
+                The client does not own the real multiplayer rules. A separate backend at the configured host and port owns
+                rooms, players, turns, hidden-card visibility, card movement, scoring, and allowed actions.
+            </p>
+            <p>
+                The executable starts a graphical window, lets the user enter a nickname, browse or create rooms, wait in a
+                lobby, and then play cards by clicking the deck, discard pile, own cards, opponent cards, and the Screw button.
+                The client repeatedly polls the backend and redraws the latest JSON state.
+            </p>
+        </section>
+
+        <section>
+            <h2>Architecture</h2>
+            <div class="grid">
+                <div class="tile">
+                    <strong>UI and app state</strong>
+                    <code>Skrew/src/main.cpp</code> contains the SFML app loop, screen state machine, rendering helpers,
+                    click handling, animations, and JSON interpretation helpers.
+                </div>
+                <div class="tile">
+                    <strong>Backend client</strong>
+                    <code>GameClient</code> wraps all HTTP calls to the backend, stores the room ID, room code, player ID,
+                    latest game state, and last error.
+                </div>
+                <div class="tile">
+                    <strong>Assets</strong>
+                    Card images live in <code>Skrew/assets/cards</code>, and the UI font is <code>Skrew/assets/fonts/arial.ttf</code>.
+                    The release package copies those assets into <code>final/dlls/assets</code>.
+                </div>
+                <div class="tile">
+                    <strong>Build and package</strong>
+                    Visual Studio builds <code>Skrew.vcxproj</code>. Release x64 runs <code>package_final.ps1</code>, which creates
+                    <code>final/</code> and <code>final.zip</code>.
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Runtime Flow</h2>
+            <ol>
+                <li><code>main()</code> configures DLL search paths, catches fatal errors, and calls <code>runApp()</code>.</li>
+                <li><code>runApp()</code> loads <code>config.json</code>, opens the SFML window, loads the font, and creates UI state.</li>
+                <li>The app begins in <code>AppState::Menu</code>, drawn by <code>MainMenu</code>.</li>
+                <li>Starting the game moves to nickname entry, then room selection.</li>
+                <li>The client fetches rooms with <code>GET /rooms</code>, creates rooms with <code>POST /rooms</code>, and joins with <code>POST /rooms/&lt;id&gt;/join</code>.</li>
+                <li>The waiting room polls <code>GET /rooms/&lt;room_id&gt;/lobby</code>. The host can start with <code>POST /rooms/&lt;room_id&gt;/start</code>.</li>
+                <li>The playing screen polls <code>GET /rooms/&lt;room_id&gt;/state?player_id=...</code> and renders the returned player-specific JSON.</li>
+                <li>Gameplay clicks send actions through <code>POST /rooms/&lt;room_id&gt;/actions</code>, then refresh the state.</li>
+                <li>Round-end data is displayed from <code>results</code> or <code>round_results</code>.</li>
+            </ol>
+        </section>
+
+        <section>
+            <h2>Main Gameplay Concepts</h2>
+            <ul>
+                <li><strong>Number cards:</strong> images and values include <code>-1</code>, <code>0</code> through <code>10</code>, <code>20</code>, and <code>25</code>.</li>
+                <li><strong>Special cards:</strong> <code>GiveAndTake</code> swaps a local card with an opponent card; <code>Seeandswab</code> supports reveal/swap behavior.</li>
+                <li><strong>Drawn card:</strong> a card drawn from the deck can be swapped into the player's hand or discarded.</li>
+                <li><strong>Discard pile:</strong> the top discard can be taken and swapped when the backend allows it.</li>
+                <li><strong>Screw action:</strong> calling Screw starts final turns. At round end, if the caller does not have the lowest score, a penalty is applied by the backend.</li>
+                <li><strong>Allowed actions:</strong> the client checks <code>allowed_actions</code> for highlighting and click behavior, but backend validation remains authoritative.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Important Functions In main.cpp</h2>
+            <table>
+                <thead><tr><th>Area</th><th>Functions / structs</th><th>What they do</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>State and config</td>
+                        <td><code>AppState</code>, <code>AppConfig</code>, <code>loadAppConfig()</code>, <code>configureDllSearchPath()</code>, <code>assetPath()</code></td>
+                        <td>Define screens, load backend/window settings, find runtime DLLs, and locate packaged assets.</td>
+                    </tr>
+                    <tr>
+                        <td>JSON helpers</td>
+                        <td><code>jsonString()</code>, <code>jsonBool()</code>, <code>getIntegerField()</code>, <code>readRoomsFromJson()</code>, <code>readLobbyPlayers()</code></td>
+                        <td>Accept multiple backend field names and convert backend JSON into room, lobby, and game data used by the UI.</td>
+                    </tr>
+                    <tr>
+                        <td>Card interpretation</td>
+                        <td><code>cardIsVisible()</code>, <code>cardFileName()</code>, <code>getPlayerHand()</code>, <code>getDrawnCard()</code>, <code>getDiscardCard()</code></td>
+                        <td>Determine whether a card should show its face or back, choose the correct card image file, and extract hand/pile data from different JSON shapes.</td>
+                    </tr>
+                    <tr>
+                        <td>Turn and actions</td>
+                        <td><code>hasAllowedAction()</code>, <code>isActionTargetPhase()</code>, <code>isRoundFinished()</code>, <code>canCallScrew()</code>, <code>getCurrentTurnText()</code></td>
+                        <td>Drive UI hints, click behavior, highlighting, and the Screw confirmation dialog.</td>
+                    </tr>
+                    <tr>
+                        <td>Movement tracking</td>
+                        <td><code>collectMovedCardSlots()</code>, <code>findCardAtMovementDestination()</code>, <code>cardMovementKey()</code>, <code>RemoteCardMotion</code></td>
+                        <td>Use backend card movement metadata to animate remote actions between deck, discard, pending card, and hands.</td>
+                    </tr>
+                    <tr>
+                        <td>Drawing helpers</td>
+                        <td><code>drawPanel()</code>, <code>drawButton()</code>, <code>drawCardVisual()</code>, <code>drawStatusBar()</code>, <code>drawRoundResultsPanel()</code></td>
+                        <td>Render the table UI, cards, buttons, tooltips, action reveal overlay, error/status messages, and results panel.</td>
+                    </tr>
+                    <tr>
+                        <td>Text fitting</td>
+                        <td><code>fitTextToWidth()</code>, <code>fitTextToBox()</code>, <code>setFittedText()</code>, <code>centerText()</code></td>
+                        <td>Shrink or position SFML text so names, hints, room rows, and labels do not overlap their containers.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Source And Header Files</h2>
+            <table>
+                <thead><tr><th>File</th><th>Function</th><th>What It Does</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td class="path">Skrew/src/main.cpp</td>
+                        <td>Main executable logic and SFML game client UI.</td>
+                        <td>Contains the app state machine, config loading, JSON parsing helpers, card visibility/image mapping, room and lobby screens, gameplay rendering, polling, click handling, animations, Screw confirmation, action reveal overlay, results screen, fatal error handling, and <code>main()</code>.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/GameClient.h</td>
+                        <td>Declares the HTTP client class.</td>
+                        <td>Defines fields for backend host/port, room ID/code, player ID, latest state, last error, and public methods for room, lobby, state, and game actions.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/GameClient.cpp</td>
+                        <td>Implements backend communication.</td>
+                        <td>Uses cpp-httplib to send GET/POST requests, parses JSON responses, handles errors, creates and joins rooms, starts games, refreshes state, and sends actions such as draw, drop, swap, reveal, GiveAndTake, SeeAndSwap, cancel, and call Screw.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/MainMenu.h</td>
+                        <td>Declares the menu UI.</td>
+                        <td>Defines <code>MenuResult</code> and a <code>MainMenu</code> class with title, subtitle, Start button, Exit button, event handling, and drawing.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/MainMenu.cpp</td>
+                        <td>Implements the menu UI.</td>
+                        <td>Builds the menu text and buttons, detects mouse clicks, changes button colors on hover, and draws a table-like menu scene.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/TextureManager.h</td>
+                        <td>Declares texture caching.</td>
+                        <td>Defines a map of loaded SFML textures and exposes <code>getTexture()</code>.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/TextureManager.cpp</td>
+                        <td>Loads card images.</td>
+                        <td>Looks first in <code>dlls/assets/cards</code> and then in <code>assets/cards</code>, loads each PNG once, smooths it, caches it by file name, and returns a pointer for rendering.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/Card.h</td>
+                        <td>Declares local card data.</td>
+                        <td>Defines <code>CardType</code> with <code>Number</code>, <code>GiveAndTake</code>, and <code>SeeAndSwab</code>, plus a simple <code>Card</code> struct with constructors for number and special cards.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/Deck.h</td>
+                        <td>Declares a local deck class.</td>
+                        <td>Defines a vector-backed <code>Deck</code> with create, shuffle, size, and draw operations. This is legacy/local logic; active multiplayer state comes from the backend.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/Deck.cpp</td>
+                        <td>Implements local deck behavior.</td>
+                        <td>Creates number cards from <code>-1</code> to <code>10</code>, high-value cards <code>20</code> and <code>25</code>, special cards, shuffles with <code>std::shuffle</code>, and draws from the back of the vector.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/Player.h</td>
+                        <td>Declares a local player class.</td>
+                        <td>Stores a player name and vector of local <code>Card</code> objects with getters and hand mutation methods. This is also legacy/local data.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/src/Player.cpp</td>
+                        <td>Implements local player behavior.</td>
+                        <td>Constructs a player, gets/sets the name, adds cards, clears the hand, and returns the hand vector.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/third_party/httplib.h</td>
+                        <td>Bundled HTTP library.</td>
+                        <td>Single-header cpp-httplib dependency used by <code>GameClient</code> for HTTP requests to the backend.</td>
+                    </tr>
+                    <tr>
+                        <td class="path">Skrew/include/third_party/json.hpp</td>
+                        <td>Bundled JSON library.</td>
+                        <td>Single-header nlohmann/json dependency used for request bodies, response parsing, and state inspection.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Configuration, Build, And Docs</h2>
+            <table>
+                <thead><tr><th>File</th><th>Function</th><th>What It Does</th></tr></thead>
+                <tbody>
+                    <tr><td class="path">README.md</td><td>Minimal repo readme.</td><td>Currently only contains the project title <code># Skrew</code>.</td></tr>
+                    <tr><td class="path">Skrew.slnx</td><td>Visual Studio solution.</td><td>References <code>Skrew/Skrew.vcxproj</code> and declares x64/x86 platforms.</td></tr>
+                    <tr><td class="path">Skrew/Skrew.vcxproj</td><td>Visual Studio C++ project.</td><td>Lists all source/header files, sets C++20, references SFML include/library paths, declares Debug/Release and Win32/x64 builds, links SFML libraries, and runs the package script after x64 Release builds.</td></tr>
+                    <tr><td class="path">Skrew/Skrew.vcxproj.filters</td><td>Visual Studio organization file.</td><td>Groups files into Source Files, Header Files, and Resource Files inside Solution Explorer.</td></tr>
+                    <tr><td class="path">Skrew/config.json</td><td>Development runtime config.</td><td>Sets backend host <code>127.0.0.1</code>, port <code>5000</code>, window size <code>1000x700</code>, and polling intervals for menus and game state.</td></tr>
+                    <tr><td class="path">package_final.ps1</td><td>Release packaging script.</td><td>Copies the built executable, SFML DLLs, Visual C++ runtime DLLs, UCRT DLLs, config, and assets into <code>final/</code>, then creates <code>final.zip</code>.</td></tr>
+                    <tr><td class="path">summary.md</td><td>Older markdown summary.</td><td>Documents an earlier version of the project. Some details are outdated compared with the current source.</td></tr>
+                    <tr><td class="path">summary.html</td><td>Existing HTML project summary.</td><td>Describes the current C++/SFML client, UI, backend endpoints, assets, build files, and packaged output.</td></tr>
+                    <tr><td class="path">ui.html</td><td>UI guide.</td><td>Explains the SFML UI layout, fixed 1000x700 logical canvas, card dimensions, animations, and common places to edit layout.</td></tr>
+                    <tr><td class="path">SCREW.md</td><td>Screw action backend note.</td><td>Documents the <code>call_screw</code> request, final-turn behavior, round finished response, scoring, and error cases.</td></tr>
+                    <tr><td class="path">CARD_TRACKING.md</td><td>Card movement backend note.</td><td>Documents movement fields such as <code>source</code>, <code>destination</code>, <code>from</code>, and <code>to</code> used by the client for animation and state understanding.</td></tr>
+                    <tr><td class="path">newactions.md</td><td>Numeric action backend note.</td><td>Documents actions triggered by drawing then discarding number cards <code>7</code>, <code>8</code>, <code>9</code>, and <code>10</code>.</td></tr>
+                    <tr><td class="path">.gitignore</td><td>Git ignore rules.</td><td>Ignores Visual Studio, build, temporary, and generated files.</td></tr>
+                    <tr><td class="path">.gitattributes</td><td>Git attributes.</td><td>Configures line endings and repository file handling.</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Assets</h2>
+            <table>
+                <thead><tr><th>File</th><th>Function</th><th>What It Does</th></tr></thead>
+                <tbody>
+                    <tr><td class="path">Skrew/assets/fonts/arial.ttf</td><td>Font asset.</td><td>Used by SFML text throughout the menu, lobby, gameplay table, status bar, and result panels.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/back.png</td><td>Card back image.</td><td>Rendered for the deck and hidden cards.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/-1.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>-1</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/0.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>0</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/1.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>1</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/2.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>2</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/3.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>3</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/4.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>4</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/5.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>5</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/6.png</td><td>Number card image.</td><td>Rendered when a visible card has value <code>6</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/7.png</td><td>Number/action card image.</td><td>Rendered for value <code>7</code>; backend docs say drawn-then-discarded 7 can reveal one own card.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/8.png</td><td>Number/action card image.</td><td>Rendered for value <code>8</code>; backend docs say drawn-then-discarded 8 can reveal one own card.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/9.png</td><td>Number/action card image.</td><td>Rendered for value <code>9</code>; backend docs say drawn-then-discarded 9 can reveal one opponent card.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/10.png</td><td>Number/action card image.</td><td>Rendered for value <code>10</code>; backend docs say drawn-then-discarded 10 can reveal one opponent card.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/20.png</td><td>High-value card image.</td><td>Rendered when a visible card has value <code>20</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/25.png</td><td>High-value card image.</td><td>Rendered when a visible card has value <code>25</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/GiveAndTake.png</td><td>Special card image.</td><td>Rendered for Give And Take cards; mapped from names such as <code>give_and_take</code> or <code>GiveAndTake</code>.</td></tr>
+                    <tr><td class="path">Skrew/assets/cards/Seeandswab.png</td><td>Special card image.</td><td>Rendered for See And Swap/Swab cards; mapped from names such as <code>see_and_swap</code>, <code>see_and_swab</code>, or <code>Seeandswab</code>.</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Packaged Output</h2>
+            <p>
+                The <code>final</code> folder is a runnable release package. It is generated by the packaging script and can be rebuilt.
+                These files are runtime deliverables, not source code.
+            </p>
+            <table>
+                <thead><tr><th>File or Folder</th><th>Function</th><th>What It Does</th></tr></thead>
+                <tbody>
+                    <tr><td class="path">final/Skrew.exe</td><td>Compiled release executable.</td><td>The runnable Windows client built from the C++ project.</td></tr>
+                    <tr><td class="path">final/config.json</td><td>Packaged runtime config.</td><td>Same settings as source config, placed beside the packaged executable.</td></tr>
+                    <tr><td class="path">final/dlls/sfml-graphics-3.dll</td><td>SFML runtime DLL.</td><td>Provides graphics rendering support.</td></tr>
+                    <tr><td class="path">final/dlls/sfml-window-3.dll</td><td>SFML runtime DLL.</td><td>Provides window/input support.</td></tr>
+                    <tr><td class="path">final/dlls/sfml-system-3.dll</td><td>SFML runtime DLL.</td><td>Provides core SFML system utilities.</td></tr>
+                    <tr><td class="path">final/dlls/sfml-audio-3.dll</td><td>SFML runtime DLL.</td><td>Provides audio support if used by SFML/runtime.</td></tr>
+                    <tr><td class="path">final/dlls/sfml-network-3.dll</td><td>SFML runtime DLL.</td><td>Provides SFML network support, although HTTP in this client uses cpp-httplib.</td></tr>
+                    <tr><td class="path">final/dlls/msvcp*.dll, vcruntime*.dll, vccorlib140.dll, concrt140.dll</td><td>Microsoft C++ runtime DLLs.</td><td>Runtime libraries needed by the compiled executable on machines without the matching Visual C++ redistributable installed.</td></tr>
+                    <tr><td class="path">final/dlls/ucrtbase.dll and api-ms-win-*.dll</td><td>Windows UCRT/API runtime DLLs.</td><td>Universal C Runtime and API-set DLLs copied for portability of the release package.</td></tr>
+                    <tr><td class="path">final/dlls/assets/fonts/arial.ttf</td><td>Packaged font.</td><td>Font used by the packaged executable.</td></tr>
+                    <tr><td class="path">final/dlls/assets/cards/*.png</td><td>Packaged card images.</td><td>Copies of all card PNGs used by <code>TextureManager</code> when running from the packaged folder.</td></tr>
+                    <tr><td class="path">final.zip</td><td>Compressed release package.</td><td>Zip archive containing the generated <code>final</code> package.</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Generated And Local Tooling Folders</h2>
+            <table>
+                <thead><tr><th>Path</th><th>Function</th><th>What It Does</th></tr></thead>
+                <tbody>
+                    <tr><td class="path">.git/</td><td>Git metadata.</td><td>Stores version history, refs, objects, hooks, and repository config. It is not part of the application runtime.</td></tr>
+                    <tr><td class="path">.vs/</td><td>Visual Studio local state.</td><td>Stores IDE caches, IntelliSense databases, and local solution data. It is generated by Visual Studio.</td></tr>
+                    <tr><td class="path">x64/</td><td>Build output folder.</td><td>Stores generated Visual Studio build artifacts and compiled outputs. Contents can be recreated by building the project.</td></tr>
+                    <tr><td class="path">final/</td><td>Packaged release folder.</td><td>Generated deployable package containing the executable, DLLs, config, and assets.</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>Backend Endpoints Used</h2>
+            <table>
+                <thead><tr><th>Endpoint</th><th>Client Method</th><th>Purpose</th></tr></thead>
+                <tbody>
+                    <tr><td><code>POST /rooms</code></td><td><code>createRoom()</code></td><td>Create a new public room with a max player count.</td></tr>
+                    <tr><td><code>GET /rooms</code></td><td><code>fetchRooms()</code></td><td>List public rooms for the room browser.</td></tr>
+                    <tr><td><code>GET /rooms/&lt;room_id&gt;/lobby</code></td><td><code>fetchLobby()</code></td><td>Read waiting-room players, host, and player count.</td></tr>
+                    <tr><td><code>POST /rooms/&lt;room&gt;/join</code></td><td><code>joinRoom()</code></td><td>Join a room using a room ID or room code and nickname.</td></tr>
+                    <tr><td><code>POST /rooms/&lt;room_id&gt;/start</code></td><td><code>startGame()</code></td><td>Host starts the game.</td></tr>
+                    <tr><td><code>GET /rooms/&lt;room_id&gt;/state?player_id=...</code></td><td><code>refreshState()</code></td><td>Fetch player-specific current state.</td></tr>
+                    <tr><td><code>POST /rooms/&lt;room_id&gt;/actions</code></td><td><code>sendAction()</code> and wrappers</td><td>Submit gameplay actions such as draw, drop, swap, reveal, cancel, and call Screw.</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="note">
+            <h2>Important Notes</h2>
+            <ul>
+                <li>The backend must be running at the configured <code>host</code> and <code>port</code>, defaulting to <code>127.0.0.1:5000</code>.</li>
+                <li>The SFML UI is drawn on a fixed logical view of <code>1000x700</code>, even if the launch window size changes.</li>
+                <li><code>Deck</code>, <code>Player</code>, and <code>Card</code> are simple local model classes, but the active multiplayer game should use backend state as the source of truth.</li>
+                <li>The client intentionally accepts several alternative JSON field names, which makes it more tolerant of backend response changes.</li>
+                <li>Packaged DLLs and the <code>final</code> folder can be regenerated by a Release x64 build or by running <code>package_final.ps1</code> with a built executable.</li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

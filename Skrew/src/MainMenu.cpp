@@ -94,11 +94,11 @@ void MainMenu::draw(sf::RenderWindow& window)
 
     sf::RectangleShape topRail({ 760.f, 32.f });
     topRail.setPosition({ 120.f, 535.f });
-    topRail.setFillColor(sf::Color(77, 50, 39));
+    topRail.setFillColor(sf::Color(25, 44, 39));
 
     sf::RectangleShape bottomRail({ 640.f, 20.f });
     bottomRail.setPosition({ 180.f, 576.f });
-    bottomRail.setFillColor(sf::Color(45, 33, 29));
+    bottomRail.setFillColor(sf::Color(17, 29, 27));
 
     window.draw(tableGlow);
     window.draw(topRail);

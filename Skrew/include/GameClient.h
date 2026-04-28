@@ -35,6 +35,8 @@ public:
     bool callScrew();
     bool swapDrawnWithOwnCard(int ownCardIndex);
     bool takeDiscardAndSwap(int ownCardIndex);
+    bool revealOwnCard(int ownCardIndex);
+    bool revealOpponentCard(const std::string& targetPlayerId, int targetCardIndex);
     bool resolveGiveAndTake(int ownCardIndex, const std::string& targetPlayerId, int targetCardIndex);
     bool revealSeeAndSwapTarget(const std::string& targetPlayerId, int targetCardIndex);
     bool resolveSeeAndSwap(int ownCardIndex);

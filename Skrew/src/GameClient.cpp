@@ -281,7 +281,23 @@ bool GameClient::sendAction(const std::string& action, const nlohmann::json& pay
         return false;
     }
 
-    return refreshState();
+    bool refreshed = refreshState();
+    if (!refreshed)
+    {
+        return false;
+    }
+
+    if (responseJson.is_object() && responseJson.contains("action_reveal") && !responseJson["action_reveal"].is_null())
+    {
+        latestState["action_reveal"] = responseJson["action_reveal"];
+    }
+
+    if (responseJson.is_object() && responseJson.contains("message") && responseJson["message"].is_string())
+    {
+        latestState["message"] = responseJson["message"];
+    }
+
+    return true;
 }
 
 bool GameClient::drawFromDeck()
@@ -311,6 +327,21 @@ bool GameClient::takeDiscardAndSwap(int ownCardIndex)
     nlohmann::json payload;
     payload["own_card_index"] = ownCardIndex;
     return sendAction("take_discard_and_swap", payload);
+}
+
+bool GameClient::revealOwnCard(int ownCardIndex)
+{
+    nlohmann::json payload;
+    payload["own_card_index"] = ownCardIndex;
+    return sendAction("reveal_own_card", payload);
+}
+
+bool GameClient::revealOpponentCard(const std::string& targetPlayerId, int targetCardIndex)
+{
+    nlohmann::json payload;
+    payload["target_player_id"] = targetPlayerId;
+    payload["target_card_index"] = targetCardIndex;
+    return sendAction("reveal_opponent_card", payload);
 }
 
 bool GameClient::resolveGiveAndTake(int ownCardIndex, const std::string& targetPlayerId, int targetCardIndex)
