@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Room Not Found</title>
+    <style>
+        body {
+            margin: 0;
+            background: #f5f6f8;
+            color: #20242a;
+            font-family: Arial, sans-serif;
+        }
+
+        main {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 32px 20px;
+        }
+
+        a {
+            color: #0f5d9f;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .panel {
+            margin-top: 18px;
+            background: #ffffff;
+            border: 1px solid #d9dde3;
+            padding: 16px;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <a href="{{ url_for('debug_routes.debug_rooms_route') }}">Back to rooms</a>
+    <div class="panel">Room {{ room_id }} was not found.</div>
+</main>
+</body>
+</html>

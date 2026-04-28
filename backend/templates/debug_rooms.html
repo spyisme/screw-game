@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Debug Rooms</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: #f5f6f8;
+            color: #20242a;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 20px;
+        }
+
+        h1 {
+            margin: 0 0 20px;
+            font-size: 28px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+            border: 1px solid #d9dde3;
+        }
+
+        th,
+        td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #e7e9ed;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        th {
+            background: #eef1f5;
+            font-weight: 700;
+        }
+
+        tr:last-child td {
+            border-bottom: 0;
+        }
+
+        a {
+            color: #0f5d9f;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .empty {
+            padding: 20px;
+            background: #ffffff;
+            border: 1px solid #d9dde3;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Debug Rooms</h1>
+
+    {% if rooms %}
+        <table>
+            <thead>
+            <tr>
+                <th>Room</th>
+                <th>Code</th>
+                <th>Status</th>
+                <th>Players</th>
+                <th>Current Turn</th>
+                <th>Created</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for room in rooms %}
+                <tr>
+                    <td><a href="{{ url_for('debug_routes.debug_room_route', room_id=room.room_id) }}">{{ room.room_id }}</a></td>
+                    <td>{{ room.room_code }}</td>
+                    <td>{{ room.status }}</td>
+                    <td>{{ room.players|length }} / {{ room.max_players }}</td>
+                    <td>{{ room.game_state.current_player_id or '-' }}</td>
+                    <td>{{ room.created_at }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty">No rooms are currently stored in memory.</div>
+    {% endif %}
+</main>
+</body>
+</html>

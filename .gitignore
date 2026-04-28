@@ -4,7 +4,17 @@
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
 # User-specific files
-final.zip
+final/
+*.zip
+*.exe
+*.dll
+*.py[cod]
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
 *.rsuser
 *.suo
 *.user

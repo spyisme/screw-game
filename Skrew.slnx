@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Skrew/Skrew.vcxproj" Id="f9b14eb8-5333-4ff0-ad17-d5c19b7434b4" />
+  <Project Path="client/Skrew/Skrew.vcxproj" Id="f9b14eb8-5333-4ff0-ad17-d5c19b7434b4" />
 </Solution>

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Debug Room {{ room.room_code }}</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: #f5f6f8;
+            color: #20242a;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 20px;
+        }
+
+        a {
+            color: #0f5d9f;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            margin: 16px 0 10px;
+            font-size: 28px;
+        }
+
+        h2 {
+            margin: 28px 0 12px;
+            font-size: 20px;
+        }
+
+        .meta,
+        .player {
+            background: #ffffff;
+            border: 1px solid #d9dde3;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px 18px;
+            font-size: 14px;
+        }
+
+        .label {
+            color: #606875;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .value {
+            margin-top: 3px;
+            overflow-wrap: anywhere;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .card {
+            border: 1px solid #cfd5dd;
+            background: #f9fafb;
+            padding: 10px;
+            min-height: 92px;
+        }
+
+        .card strong {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .card div {
+            font-size: 13px;
+            margin-top: 4px;
+            overflow-wrap: anywhere;
+        }
+
+        .muted {
+            color: #606875;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <a href="{{ url_for('debug_routes.debug_rooms_route') }}">Back to rooms</a>
+    <h1>Room {{ room.room_code }}</h1>
+
+    <section class="meta">
+        <div class="meta-grid">
+            <div>
+                <div class="label">Room ID</div>
+                <div class="value">{{ room.room_id }}</div>
+            </div>
+            <div>
+                <div class="label">Status</div>
+                <div class="value">{{ room.status }}</div>
+            </div>
+            <div>
+                <div class="label">Phase</div>
+                <div class="value">{{ room.game_state.phase }}</div>
+            </div>
+            <div>
+                <div class="label">Current Player</div>
+                <div class="value">{{ room.game_state.current_player_id or '-' }}</div>
+            </div>
+            <div>
+                <div class="label">Screw Caller</div>
+                <div class="value">{{ room.game_state.screw_caller_id or '-' }}</div>
+            </div>
+            <div>
+                <div class="label">Final Turns</div>
+                <div class="value">{{ room.game_state.final_turn_player_ids|join(', ') if room.game_state.final_turn_player_ids else '-' }}</div>
+            </div>
+            <div>
+                <div class="label">Screw Success</div>
+                <div class="value">{{ room.game_state.screw_success if room.game_state.screw_success is not none else '-' }}</div>
+            </div>
+            <div>
+                <div class="label">Draw Pile</div>
+                <div class="value">{{ room.game_state.draw_pile|length }} cards</div>
+            </div>
+            <div>
+                <div class="label">Top Discard</div>
+                <div class="value">
+                    {% if room.game_state.top_discard_card %}
+                        {{ room.game_state.top_discard_card.type.value }}
+                        {% if room.game_state.top_discard_card.value is not none %}
+                            {{ room.game_state.top_discard_card.value }}
+                        {% endif %}
+                        ({{ room.game_state.top_discard_card.image_name }})
+                    {% else %}
+                        -
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <h2>Players</h2>
+    {% for player in room.players %}
+        <section class="player">
+            <div class="meta-grid">
+                <div>
+                    <div class="label">Nickname</div>
+                    <div class="value">{{ player.nickname }}</div>
+                </div>
+                <div>
+                    <div class="label">Player ID</div>
+                    <div class="value">{{ player.player_id }}</div>
+                </div>
+                <div>
+                    <div class="label">Turns Completed</div>
+                    <div class="value">{{ player.turns_completed }}</div>
+                </div>
+                <div>
+                    <div class="label">Total Score</div>
+                    <div class="value">{{ player.total_score }}</div>
+                </div>
+                <div>
+                    <div class="label">Pending Drawn Card</div>
+                    <div class="value">
+                        {% if player.pending_drawn_card %}
+                            {{ player.pending_drawn_card.type.value }}
+                            {% if player.pending_drawn_card.value is not none %}
+                                {{ player.pending_drawn_card.value }}
+                            {% endif %}
+                            ({{ player.pending_drawn_card.image_name }})
+                        {% else %}
+                            -
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {% if player.cards %}
+                <div class="cards">
+                    {% for card in player.cards %}
+                        <div class="card">
+                            <strong>Index {{ loop.index0 }}</strong>
+                            <div>Type: {{ card.type.value }}</div>
+                            <div>Value: {{ card.value if card.value is not none else '-' }}</div>
+                            <div>Image: {{ card.image_name }}</div>
+                            <div class="muted">ID: {{ card.id }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="muted">No cards dealt.</p>
+            {% endif %}
+        </section>
+    {% endfor %}
+</main>
+</body>
+</html>
