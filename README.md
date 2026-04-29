@@ -1,9 +1,17 @@
 # Skrew (Programming 2 project)
 
 Skrew is a multiplayer card game project with a C++/SFML desktop client and a Flask backend. The backend is the source of truth for rooms, turns, card visibility, card movement, and action validation. The client renders the game and talks to the backend over HTTP.
-
+<br>
 Mainly used Codex cli Chatgpt 5.5 medium , high & extra high throughout the project (Over 13 mil token).<br>
-Cards images in /assets/cards are extracted from the screw android mobile app to get the best quality. 
+Cards images in /assets/cards are extracted from the screw android mobile app to get the best quality. <br><br>
+All requests uses http polling instead of web scoekts.  
+<h5>Config.json</h5>
+host : 127.0.0.1<br>
+port : 5000<br>
+width : 1000<br>
+height : 700<br>
+menu_poll_interval_secs : 2.0<br>
+game_poll_interval_secs : 2.0<br>
 
 ## Repository Layout
 
