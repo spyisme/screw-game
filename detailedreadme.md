@@ -2,8 +2,9 @@
 
 Skrew is a multiplayer card game project with two main runtime parts:
 
-- `backend/`: a Flask API that owns rooms, players, cards, turns, visibility rules, scoring, and action validation.
 - `client/Skrew/`: a Windows C++ desktop client built with SFML that renders the game table and communicates with the backend over HTTP.
+- `backend/`: a Flask API that owns rooms, players, cards, turns, visibility rules, scoring, and action validation.
+
 
 ## Client File Inventory
 
