@@ -5,296 +5,6 @@ Skrew is a multiplayer card game project with two main runtime parts:
 - `backend/`: a Flask API that owns rooms, players, cards, turns, visibility rules, scoring, and action validation.
 - `client/Skrew/`: a Windows C++ desktop client built with SFML that renders the game table and communicates with the backend over HTTP.
 
-The backend is the source of truth. The client stores only the local connection/session data and the latest server response.
-
-## High-Level Architecture
-
-```text
-client/Skrew
-  C++ SFML app
-  Uses httplib for HTTP requests
-  Uses nlohmann/json for JSON parsing
-  Loads card images and font assets from assets/
-        |
-        | HTTP JSON
-        v
-backend
-  Flask app
-  In-memory room store
-  Game engine and rule validation
-  Player-specific visible game state
-```
-
-## Runtime Requirements
-
-### Backend
-
-- Python 3.12 or newer
-- Flask 3.0.3
-
-Run from the repository root:
-
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python app.py
-```
-
-The backend listens on:
-
-```text
-http://127.0.0.1:5000
-```
-
-### Client
-
-- Windows
-- Visual Studio with C++ desktop workload
-- MSVC toolset `v145`
-- SFML 3.x
-
-The Visual Studio project currently references SFML at:
-
-```text
-C:\Users\Spy\source\SFML-3.0.2
-```
-
-If SFML is elsewhere, update `AdditionalIncludeDirectories` and `AdditionalLibraryDirectories` in `client/Skrew/Skrew.vcxproj`.
-
-## Game Flow
-
-1. A player creates a room.
-2. Players join by room id or room code.
-3. The host starts the game once at least two players are present.
-4. Each player receives four cards.
-5. At the start, each player can see only their own last two dealt cards.
-6. On a normal turn, the current player either draws from the deck or takes from discard.
-7. If drawing from deck, the player swaps the pending drawn card with one own card or drops it.
-8. If taking from discard, the player swaps that discard card with one own card.
-9. Special cards and numeric peek cards activate only when drawn from the deck and dropped in that same turn.
-10. A player can call Screw to start final turns.
-11. After every other player gets one final turn, all cards are revealed and scores are calculated.
-
-## Backend API Summary
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Health check returning `{"status":"ok"}`. |
-| `GET` | `/` | Attempts to download `final.zip` from the backend folder. |
-| `POST` | `/rooms` | Creates a room with `is_public` and `max_players`. |
-| `GET` | `/rooms` | Lists public waiting rooms. |
-| `GET` | `/rooms/public` | Same public waiting-room list as `/rooms`. |
-| `POST` | `/rooms/<room_id_or_code>/join` | Joins a room by id or code. |
-| `GET` | `/rooms/<room_id_or_code>/lobby` | Returns waiting-room lobby details. |
-| `POST` | `/rooms/<room_id_or_code>/start` | Host starts the game. |
-| `GET` | `/rooms/<room_id_or_code>/state?player_id=...` | Returns state visible to one player. |
-| `POST` | `/rooms/<room_id_or_code>/actions` | Applies a turn action. |
-| `GET` | `/debug/rooms` | HTML page listing rooms in memory. |
-| `GET` | `/debug/rooms/<room_id>` | HTML page showing one room's server-side state. |
-
-## Backend Actions
-
-| Action | Payload | Meaning |
-| --- | --- | --- |
-| `draw_from_deck` | `{}` | Current player draws one card into `pending_drawn_card`. |
-| `swap_drawn_with_own_card` | `{"own_card_index": 0}` | Moves pending drawn card into hand and discards the replaced card. |
-| `drop_drawn_card` | `{}` | Drops the pending drawn card to discard. May activate a pending action. |
-| `take_discard_and_swap` | `{"own_card_index": 0}` | Takes top discard card and swaps with one own card. |
-| `call_screw` | `{}` | Starts final-turn phase. |
-| `resolve_give_and_take` | `{"own_card_index": 0, "target_player_id": "...", "target_card_index": 2}` | Swaps one current-player card with one opponent card. |
-| `reveal_see_and_swap_target` | `{"target_player_id": "...", "target_card_index": 1}` | Reveals one target card to the acting player. |
-| `resolve_see_and_swap` | `{"own_card_index": 3}` | Swaps the revealed target card with one own card. |
-| `cancel_see_and_swap` | `{}` | Ends See And Swap without moving cards. |
-| `reveal_own_card` | `{"own_card_index": 0}` | Resolves a `7` or `8` numeric peek action. |
-| `reveal_opponent_card` | `{"target_player_id": "...", "target_card_index": 2}` | Resolves a `9` or `10` numeric peek action. |
-
-## Current Backend Deck
-
-The active backend deck is defined in `backend/game/deck.py`:
-
-- Number cards `1` through `6`: 6 copies each.
-- Number cards `7` through `10`: 4 copies each.
-- Number card `0`: 2 copies.
-- Number card `-1`: 2 copies.
-- Number card `20`: 2 copies.
-- Number card `25`: 2 copies.
-- `GiveAndTake`: 3 copies.
-- `SeeAndSwab`: 3 copies.
-
-Each backend card has a UUID, type, optional value, image filename, and optional latest movement metadata.
-
-## Backend Game Phases
-
-| Phase | Meaning |
-| --- | --- |
-| `not_started` | Room exists but game has not started. |
-| `playing` | Normal turn rotation. |
-| `waiting_for_action_target` | A dropped action card or numeric peek is waiting for target selection. |
-| `final_turns` | Screw was called and remaining players each get one final turn. |
-| `round_finished` | Round is scored and cards are fully revealed. |
-
-## Backend File Inventory
-
-### `backend/app.py`
-
-Creates the Flask app, registers all route blueprints, exposes `/health`, and exposes `/` as a `final.zip` download route if that zip exists in the backend folder. Also starts Flask on `0.0.0.0:5000` when run directly.
-
-### `backend/requirements.txt`
-
-Pins the Python backend dependency:
-
-- `Flask==3.0.3`
-
-### `backend/game/__init__.py`
-
-Package marker for the `game` module. It currently contains no runtime code.
-
-### `backend/game/cards.py`
-
-Defines card data and card type helpers.
-
-- `CardType`: enum values `number`, `give_and_take`, and `see_and_swab`.
-- `Card`: frozen dataclass containing `id`, `type`, `value`, `image_name`, source/destination movement fields, and optional `swap_info`.
-- `Card.to_dict()`: serializes the card for API responses and includes movement metadata only when present.
-- `is_action_card()`: returns true for `GiveAndTake` and `SeeAndSwab`.
-
-### `backend/game/deck.py`
-
-Builds the backend draw deck.
-
-- `_new_card()`: creates a card with a UUID.
-- `create_deck()`: creates all number and action cards in the active backend deck.
-- `shuffled_deck()`: creates and randomizes a fresh deck.
-
-### `backend/game/player.py`
-
-Defines the server-side player model.
-
-- `Player.player_id`: UUID string assigned on join.
-- `Player.nickname`: display name.
-- `Player.cards`: four-card hand after game start.
-- `Player.pending_drawn_card`: temporary card held after drawing from deck.
-- `Player.turns_completed`: turn counter.
-- `Player.total_score`: accumulated score across finished rounds.
-- `lobby_dict()`: serializes player id and nickname for lobby responses.
-
-### `backend/game/game_state.py`
-
-Defines mutable per-room game state.
-
-- `draw_pile`: remaining deck cards.
-- `discard_pile`: discard stack.
-- `current_player_id`: whose turn it is.
-- `phase`: current phase.
-- `pending_action`: target-selection state for special actions.
-- `initial_reveal_active`: controls the initial two-card reveal.
-- `screw_caller_id`: player who called Screw.
-- `final_turn_player_ids`: players still owed a final turn.
-- `round_results`: scoring results for the finished round.
-- `screw_success`: whether the Screw caller had the lowest score.
-- `top_discard_card`: property returning the visible discard card.
-
-### `backend/game/room.py`
-
-Defines a room and lobby behavior.
-
-- Stores room id, room code, public/private flag, max players, host id, status, players, creation time, and `GameState`.
-- `get_player()`: finds a player by id.
-- `has_nickname()`: case-insensitive duplicate nickname check.
-- `lobby_dict()`: serializes lobby data for the client.
-
-### `backend/game/engine.py`
-
-Contains almost all backend rules and validation.
-
-Important public functions:
-
-- `create_room()`: validates room settings and creates a `Room`.
-- `join_room()`: validates nickname, capacity, room status, and creates a `Player`.
-- `start_game()`: validates host/start requirements, shuffles deck, deals four cards to each player, starts turn order, and places the first discard.
-- `apply_action()`: main action dispatcher for all turn actions.
-- `visible_state()`: builds a player-specific state response with hidden cards removed.
-- `call_screw()`: starts the final-turn phase.
-- `start_final_turns()`: computes final-turn order after Screw.
-- `complete_turn()`: advances normal or final-turn rotation.
-- `finish_round()`: ends the round and builds scoring results.
-- `calculate_round_scores()`: totals each player's visible card values internally.
-- `build_round_results()`: applies Screw success/failure logic and updates total scores.
-
-Important internal behavior:
-
-- Uses custom `GameError` subclasses for HTTP-safe error messages.
-- Uses `_card_with_movement()` to attach latest card movement metadata.
-- Hides opponent cards unless a card is specifically revealed to the requesting player.
-- Allows `GiveAndTake`, `SeeAndSwab`, and numeric peek actions only after a matching draw-then-drop flow.
-- Scores number cards by face value.
-- Scores action cards as 10.
-- Adds a 25 point penalty to a failed Screw caller.
-
-### `backend/routes/__init__.py`
-
-Package marker for route modules. It currently contains no runtime code.
-
-### `backend/routes/room_routes.py`
-
-Defines room and lobby HTTP endpoints.
-
-- Registers `room_bp`.
-- Converts `GameError` exceptions to JSON responses.
-- `POST /rooms`: creates a room and stores it in memory.
-- `GET /rooms`: lists public waiting rooms.
-- `GET /rooms/public`: same as `/rooms`.
-- `POST /rooms/<room_id>/join`: joins by room id or room code.
-- `GET /rooms/<room_id>/lobby`: returns room lobby data.
-- `POST /rooms/<room_id>/start`: starts the game for the host.
-
-### `backend/routes/game_routes.py`
-
-Defines game-state and action endpoints.
-
-- Registers `game_bp`.
-- Converts `GameError` exceptions to JSON responses.
-- `GET /rooms/<room_id>/state`: returns `visible_state()` for the requesting `player_id`.
-- `POST /rooms/<room_id>/actions`: validates request shape and calls `apply_action()`.
-
-### `backend/routes/debug_routes.py`
-
-Defines HTML debug pages under `/debug`.
-
-- `GET /debug/rooms`: lists rooms from memory, newest first.
-- `GET /debug/rooms/<room_id>`: shows one room's internal state, players, hands, scores, piles, and current phase.
-
-### `backend/storage/__init__.py`
-
-Package marker for storage modules. It currently contains no runtime code.
-
-### `backend/storage/memory_store.py`
-
-Implements in-memory room storage.
-
-- `MemoryStore.rooms`: dictionary keyed by room UUID.
-- `add_room()`: stores a new room.
-- `get_room()`: finds by UUID first, then by uppercase room code.
-- `all_rooms()`: returns every room.
-- `public_waiting_rooms()`: returns public rooms with `status == "waiting"`.
-- `store`: process-global singleton used by route modules.
-
-Because storage is in memory, rooms disappear when the backend process restarts.
-
-### `backend/templates/debug_rooms.html`
-
-Jinja template for `/debug/rooms`. Renders a table of room id, room code, status, player count, current turn, and creation time.
-
-### `backend/templates/debug_room.html`
-
-Jinja template for `/debug/rooms/<room_id>`. Renders room metadata, phase, Screw state, pile counts, top discard, and each player's cards, pending drawn card, turns completed, and total score.
-
-### `backend/templates/debug_room_not_found.html`
-
-Jinja template returned when a debug room id is not found. Provides a back link to the debug rooms index.
-
 ## Client File Inventory
 
 ### `client/Skrew/config.json`
@@ -593,3 +303,295 @@ The client uses this metadata for card movement animations, but gameplay authori
 - `SeeAndSwab` is consistently misspelled in filenames and enum names; changing it requires coordinated backend, client, and asset updates.
 - The backend deck and the old local C++ deck are not identical. The backend deck should be treated as the real deck for multiplayer.
 - The docs under `documentation/` contain API notes and scenario examples, but the code in `backend/game/engine.py` is the current source of truth.
+
+
+The backend is the source of truth. The client stores only the local connection/session data and the latest server response.
+
+## High-Level Architecture
+
+```text
+client/Skrew
+  C++ SFML app
+  Uses httplib for HTTP requests
+  Uses nlohmann/json for JSON parsing
+  Loads card images and font assets from assets/
+        |
+        | HTTP JSON
+        v
+backend
+  Flask app
+  In-memory room store
+  Game engine and rule validation
+  Player-specific visible game state
+```
+
+## Runtime Requirements
+
+### Backend
+
+- Python 3.12 or newer
+- Flask 3.0.3
+
+Run from the repository root:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python app.py
+```
+
+The backend listens on:
+
+```text
+http://127.0.0.1:5000
+```
+
+### Client
+
+- Windows
+- Visual Studio with C++ desktop workload
+- MSVC toolset `v145`
+- SFML 3.x
+
+The Visual Studio project currently references SFML at:
+
+```text
+C:\Users\Spy\source\SFML-3.0.2
+```
+
+If SFML is elsewhere, update `AdditionalIncludeDirectories` and `AdditionalLibraryDirectories` in `client/Skrew/Skrew.vcxproj`.
+
+## Game Flow
+
+1. A player creates a room.
+2. Players join by room id or room code.
+3. The host starts the game once at least two players are present.
+4. Each player receives four cards.
+5. At the start, each player can see only their own last two dealt cards.
+6. On a normal turn, the current player either draws from the deck or takes from discard.
+7. If drawing from deck, the player swaps the pending drawn card with one own card or drops it.
+8. If taking from discard, the player swaps that discard card with one own card.
+9. Special cards and numeric peek cards activate only when drawn from the deck and dropped in that same turn.
+10. A player can call Screw to start final turns.
+11. After every other player gets one final turn, all cards are revealed and scores are calculated.
+
+## Backend API Summary
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Health check returning `{"status":"ok"}`. |
+| `GET` | `/` | Attempts to download `final.zip` from the backend folder. |
+| `POST` | `/rooms` | Creates a room with `is_public` and `max_players`. |
+| `GET` | `/rooms` | Lists public waiting rooms. |
+| `GET` | `/rooms/public` | Same public waiting-room list as `/rooms`. |
+| `POST` | `/rooms/<room_id_or_code>/join` | Joins a room by id or code. |
+| `GET` | `/rooms/<room_id_or_code>/lobby` | Returns waiting-room lobby details. |
+| `POST` | `/rooms/<room_id_or_code>/start` | Host starts the game. |
+| `GET` | `/rooms/<room_id_or_code>/state?player_id=...` | Returns state visible to one player. |
+| `POST` | `/rooms/<room_id_or_code>/actions` | Applies a turn action. |
+| `GET` | `/debug/rooms` | HTML page listing rooms in memory. |
+| `GET` | `/debug/rooms/<room_id>` | HTML page showing one room's server-side state. |
+
+## Backend Actions
+
+| Action | Payload | Meaning |
+| --- | --- | --- |
+| `draw_from_deck` | `{}` | Current player draws one card into `pending_drawn_card`. |
+| `swap_drawn_with_own_card` | `{"own_card_index": 0}` | Moves pending drawn card into hand and discards the replaced card. |
+| `drop_drawn_card` | `{}` | Drops the pending drawn card to discard. May activate a pending action. |
+| `take_discard_and_swap` | `{"own_card_index": 0}` | Takes top discard card and swaps with one own card. |
+| `call_screw` | `{}` | Starts final-turn phase. |
+| `resolve_give_and_take` | `{"own_card_index": 0, "target_player_id": "...", "target_card_index": 2}` | Swaps one current-player card with one opponent card. |
+| `reveal_see_and_swap_target` | `{"target_player_id": "...", "target_card_index": 1}` | Reveals one target card to the acting player. |
+| `resolve_see_and_swap` | `{"own_card_index": 3}` | Swaps the revealed target card with one own card. |
+| `cancel_see_and_swap` | `{}` | Ends See And Swap without moving cards. |
+| `reveal_own_card` | `{"own_card_index": 0}` | Resolves a `7` or `8` numeric peek action. |
+| `reveal_opponent_card` | `{"target_player_id": "...", "target_card_index": 2}` | Resolves a `9` or `10` numeric peek action. |
+
+## Current Backend Deck
+
+The active backend deck is defined in `backend/game/deck.py`:
+
+- Number cards `1` through `6`: 6 copies each.
+- Number cards `7` through `10`: 4 copies each.
+- Number card `0`: 2 copies.
+- Number card `-1`: 2 copies.
+- Number card `20`: 2 copies.
+- Number card `25`: 2 copies.
+- `GiveAndTake`: 3 copies.
+- `SeeAndSwab`: 3 copies.
+
+Each backend card has a UUID, type, optional value, image filename, and optional latest movement metadata.
+
+## Backend Game Phases
+
+| Phase | Meaning |
+| --- | --- |
+| `not_started` | Room exists but game has not started. |
+| `playing` | Normal turn rotation. |
+| `waiting_for_action_target` | A dropped action card or numeric peek is waiting for target selection. |
+| `final_turns` | Screw was called and remaining players each get one final turn. |
+| `round_finished` | Round is scored and cards are fully revealed. |
+
+## Backend File Inventory
+
+### `backend/app.py`
+
+Creates the Flask app, registers all route blueprints, exposes `/health`, and exposes `/` as a `final.zip` download route if that zip exists in the backend folder. Also starts Flask on `0.0.0.0:5000` when run directly.
+
+### `backend/requirements.txt`
+
+Pins the Python backend dependency:
+
+- `Flask==3.0.3`
+
+### `backend/game/__init__.py`
+
+Package marker for the `game` module. It currently contains no runtime code.
+
+### `backend/game/cards.py`
+
+Defines card data and card type helpers.
+
+- `CardType`: enum values `number`, `give_and_take`, and `see_and_swab`.
+- `Card`: frozen dataclass containing `id`, `type`, `value`, `image_name`, source/destination movement fields, and optional `swap_info`.
+- `Card.to_dict()`: serializes the card for API responses and includes movement metadata only when present.
+- `is_action_card()`: returns true for `GiveAndTake` and `SeeAndSwab`.
+
+### `backend/game/deck.py`
+
+Builds the backend draw deck.
+
+- `_new_card()`: creates a card with a UUID.
+- `create_deck()`: creates all number and action cards in the active backend deck.
+- `shuffled_deck()`: creates and randomizes a fresh deck.
+
+### `backend/game/player.py`
+
+Defines the server-side player model.
+
+- `Player.player_id`: UUID string assigned on join.
+- `Player.nickname`: display name.
+- `Player.cards`: four-card hand after game start.
+- `Player.pending_drawn_card`: temporary card held after drawing from deck.
+- `Player.turns_completed`: turn counter.
+- `Player.total_score`: accumulated score across finished rounds.
+- `lobby_dict()`: serializes player id and nickname for lobby responses.
+
+### `backend/game/game_state.py`
+
+Defines mutable per-room game state.
+
+- `draw_pile`: remaining deck cards.
+- `discard_pile`: discard stack.
+- `current_player_id`: whose turn it is.
+- `phase`: current phase.
+- `pending_action`: target-selection state for special actions.
+- `initial_reveal_active`: controls the initial two-card reveal.
+- `screw_caller_id`: player who called Screw.
+- `final_turn_player_ids`: players still owed a final turn.
+- `round_results`: scoring results for the finished round.
+- `screw_success`: whether the Screw caller had the lowest score.
+- `top_discard_card`: property returning the visible discard card.
+
+### `backend/game/room.py`
+
+Defines a room and lobby behavior.
+
+- Stores room id, room code, public/private flag, max players, host id, status, players, creation time, and `GameState`.
+- `get_player()`: finds a player by id.
+- `has_nickname()`: case-insensitive duplicate nickname check.
+- `lobby_dict()`: serializes lobby data for the client.
+
+### `backend/game/engine.py`
+
+Contains almost all backend rules and validation.
+
+Important public functions:
+
+- `create_room()`: validates room settings and creates a `Room`.
+- `join_room()`: validates nickname, capacity, room status, and creates a `Player`.
+- `start_game()`: validates host/start requirements, shuffles deck, deals four cards to each player, starts turn order, and places the first discard.
+- `apply_action()`: main action dispatcher for all turn actions.
+- `visible_state()`: builds a player-specific state response with hidden cards removed.
+- `call_screw()`: starts the final-turn phase.
+- `start_final_turns()`: computes final-turn order after Screw.
+- `complete_turn()`: advances normal or final-turn rotation.
+- `finish_round()`: ends the round and builds scoring results.
+- `calculate_round_scores()`: totals each player's visible card values internally.
+- `build_round_results()`: applies Screw success/failure logic and updates total scores.
+
+Important internal behavior:
+
+- Uses custom `GameError` subclasses for HTTP-safe error messages.
+- Uses `_card_with_movement()` to attach latest card movement metadata.
+- Hides opponent cards unless a card is specifically revealed to the requesting player.
+- Allows `GiveAndTake`, `SeeAndSwab`, and numeric peek actions only after a matching draw-then-drop flow.
+- Scores number cards by face value.
+- Scores action cards as 10.
+- Adds a 25 point penalty to a failed Screw caller.
+
+### `backend/routes/__init__.py`
+
+Package marker for route modules. It currently contains no runtime code.
+
+### `backend/routes/room_routes.py`
+
+Defines room and lobby HTTP endpoints.
+
+- Registers `room_bp`.
+- Converts `GameError` exceptions to JSON responses.
+- `POST /rooms`: creates a room and stores it in memory.
+- `GET /rooms`: lists public waiting rooms.
+- `GET /rooms/public`: same as `/rooms`.
+- `POST /rooms/<room_id>/join`: joins by room id or room code.
+- `GET /rooms/<room_id>/lobby`: returns room lobby data.
+- `POST /rooms/<room_id>/start`: starts the game for the host.
+
+### `backend/routes/game_routes.py`
+
+Defines game-state and action endpoints.
+
+- Registers `game_bp`.
+- Converts `GameError` exceptions to JSON responses.
+- `GET /rooms/<room_id>/state`: returns `visible_state()` for the requesting `player_id`.
+- `POST /rooms/<room_id>/actions`: validates request shape and calls `apply_action()`.
+
+### `backend/routes/debug_routes.py`
+
+Defines HTML debug pages under `/debug`.
+
+- `GET /debug/rooms`: lists rooms from memory, newest first.
+- `GET /debug/rooms/<room_id>`: shows one room's internal state, players, hands, scores, piles, and current phase.
+
+### `backend/storage/__init__.py`
+
+Package marker for storage modules. It currently contains no runtime code.
+
+### `backend/storage/memory_store.py`
+
+Implements in-memory room storage.
+
+- `MemoryStore.rooms`: dictionary keyed by room UUID.
+- `add_room()`: stores a new room.
+- `get_room()`: finds by UUID first, then by uppercase room code.
+- `all_rooms()`: returns every room.
+- `public_waiting_rooms()`: returns public rooms with `status == "waiting"`.
+- `store`: process-global singleton used by route modules.
+
+Because storage is in memory, rooms disappear when the backend process restarts.
+
+### `backend/templates/debug_rooms.html`
+
+Jinja template for `/debug/rooms`. Renders a table of room id, room code, status, player count, current turn, and creation time.
+
+### `backend/templates/debug_room.html`
+
+Jinja template for `/debug/rooms/<room_id>`. Renders room metadata, phase, Screw state, pile counts, top discard, and each player's cards, pending drawn card, turns completed, and total score.
+
+### `backend/templates/debug_room_not_found.html`
+
+Jinja template returned when a debug room id is not found. Provides a back link to the debug rooms index.
+
