@@ -2699,6 +2699,7 @@ int runApp()
                     bool actionWorked = false;
                     bool handledActionClick = false;
                     bool queueExplicitHandSwap = false;
+                    bool skipStateChangeMotion = false;
                     int explicitOwnIndex = -1;
                     int explicitTargetIndex = -1;
                     std::string explicitTargetPlayerId;
@@ -2707,6 +2708,7 @@ int runApp()
                     if (hasAllowedAction(gameState, "cancel_see_and_swap") && discardBox.getGlobalBounds().contains(mouse))
                     {
                         handledActionClick = true;
+                        skipStateChangeMotion = true;
                         actionWorked = client.cancelSeeAndSwap();
                     }
                     else if (hasAllowedAction(gameState, "reveal_own_card"))
@@ -2716,6 +2718,7 @@ int runApp()
                             if (handBoxes[i].getGlobalBounds().contains(mouse))
                             {
                                 handledActionClick = true;
+                                skipStateChangeMotion = true;
                                 actionWorked = client.revealOwnCard(i);
                                 break;
                             }
@@ -2734,6 +2737,7 @@ int runApp()
                                 if (getOpponentCardBounds(playerIndex, cardIndex).contains(mouse))
                                 {
                                     handledActionClick = true;
+                                    skipStateChangeMotion = true;
                                     if (!targetPlayerId.empty())
                                     {
                                         actionWorked = client.revealOpponentCard(targetPlayerId, cardIndex);
@@ -2795,6 +2799,7 @@ int runApp()
                             if (handBoxes[i].getGlobalBounds().contains(mouse))
                             {
                                 handledActionClick = true;
+                                skipStateChangeMotion = true;
                                 actionWorked = client.revealSeeAndSwapTarget(client.getPlayerId(), i);
                                 break;
                             }
@@ -2811,6 +2816,7 @@ int runApp()
                                 if (getOpponentCardBounds(playerIndex, cardIndex).contains(mouse))
                                 {
                                     handledActionClick = true;
+                                    skipStateChangeMotion = true;
                                     if (!targetPlayerId.empty())
                                     {
                                         actionWorked = client.revealSeeAndSwapTarget(targetPlayerId, cardIndex);
@@ -2860,7 +2866,7 @@ int runApp()
                             activeActionReveal = nullptr;
                             activeActionRevealDuration = 0.f;
                         }
-                        if (!explicitMotionQueued)
+                        if (!explicitMotionQueued && !skipStateChangeMotion)
                         {
                             queueCardMotionsFromStateChange(stateBeforeClick, client.getState());
                         }
